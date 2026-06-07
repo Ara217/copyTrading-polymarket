@@ -1,0 +1,114 @@
+import { z } from "zod";
+
+export const adapterVersion = "polymarket-v1";
+
+export const evmAddressSchema = z
+  .string()
+  .trim()
+  .regex(/^0x[a-fA-F0-9]{40}$/, "Expected a valid EVM wallet address")
+  .transform((value) => value.toLowerCase());
+
+export const polymarketProfileSlugSchema = z
+  .string()
+  .trim()
+  .regex(
+    /^0x[a-fA-F0-9]{40}-\d+$/,
+    "Expected a valid Polymarket profile slug"
+  )
+  .transform((value) => value.toLowerCase());
+
+export const paginationQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+  offset: z.coerce.number().int().min(0).default(0)
+});
+
+export const rawMetadataSchema = z.object({
+  source: z.enum(["gamma", "data", "clob"]),
+  fetchedAt: z.string().datetime(),
+  adapterVersion: z.string().min(1)
+});
+
+export const polymarketTradeSchema = z
+  .object({
+    id: z.union([z.string(), z.number()]).optional(),
+    transactionHash: z.string().optional().nullable(),
+    transaction_hash: z.string().optional().nullable(),
+    txHash: z.string().optional().nullable(),
+    timestamp: z.union([z.string(), z.number(), z.date()]),
+    conditionId: z.string().optional().nullable(),
+    condition_id: z.string().optional().nullable(),
+    market: z.string().optional().nullable(),
+    marketId: z.string().optional().nullable(),
+    market_id: z.string().optional().nullable(),
+    slug: z.string().optional().nullable(),
+    title: z.string().optional().nullable(),
+    outcome: z.string(),
+    price: z.union([z.string(), z.number()]),
+    size: z.union([z.string(), z.number()]),
+    side: z.string().optional().nullable()
+  })
+  .passthrough();
+
+export const polymarketMarketSchema = z
+  .object({
+    id: z.union([z.string(), z.number()]).optional(),
+    conditionId: z.string().optional().nullable(),
+    condition_id: z.string().optional().nullable(),
+    slug: z.string().optional().nullable(),
+    title: z.string().optional().nullable(),
+    question: z.string().optional().nullable(),
+    category: z.string().optional().nullable(),
+    endDate: z.string().optional().nullable(),
+    end_date: z.string().optional().nullable(),
+    resolved: z.boolean().optional().nullable(),
+    closed: z.boolean().optional().nullable(),
+    winningOutcome: z.string().optional().nullable(),
+    winning_outcome: z.string().optional().nullable()
+  })
+  .passthrough();
+
+export function parseWalletAddress(input: unknown): string {
+  return evmAddressSchema.parse(input);
+}
+
+export function parseWalletIdentifier(input: unknown): string {
+  const profileSlug = polymarketProfileSlugSchema.safeParse(input);
+  if (profileSlug.success) {
+    return profileSlug.data;
+  }
+  return evmAddressSchema.parse(input);
+}
+
+export function walletAddressFromProfileSlug(profileSlug: string): string {
+  const normalizedSlug = polymarketProfileSlugSchema.parse(profileSlug);
+  return parseWalletAddress(normalizedSlug.split("-")[0]);
+}
+
+export function extractWalletFromText(input: string): string | null {
+  const match = input.match(/0x[a-fA-F0-9]{40}/);
+  return match ? parseWalletAddress(match[0]) : null;
+}
+
+export function extractWalletIdentifierFromText(input: string): string | null {
+  const profileSlugMatch = input.match(/0x[a-fA-F0-9]{40}-\d+/);
+  if (profileSlugMatch) {
+    return parseWalletIdentifier(profileSlugMatch[0]);
+  }
+
+  const addressMatch = input.match(/0x[a-fA-F0-9]{40}/);
+  return addressMatch ? parseWalletIdentifier(addressMatch[0]) : null;
+}
+
+export function success<T>(data: T, meta?: Record<string, unknown>) {
+  return meta ? { data, meta } : { data };
+}
+
+export function failure(code: string, message: string, details?: unknown) {
+  return {
+    error: {
+      code,
+      message,
+      ...(details === undefined ? {} : { details })
+    }
+  };
+}

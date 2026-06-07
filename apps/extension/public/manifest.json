@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Polyand Polymarket Analytics",
+  "version": "0.1.0",
+  "description": "Wallet analytics for Polymarket copy-trading research.",
+  "action": {
+    "default_popup": "index.html"
+  },
+  "permissions": ["activeTab", "tabs"],
+  "host_permissions": [
+    "https://polymarket.com/*",
+    "http://localhost:3000/*"
+  ]
+}
+

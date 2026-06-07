@@ -1,0 +1,44 @@
+{
+  "name": "api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "nest start --watch",
+    "build": "nest build",
+    "start": "node dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev"
+  },
+  "dependencies": {
+    "@nestjs/bullmq": "^11.0.2",
+    "@nestjs/common": "^11.0.7",
+    "@nestjs/config": "^4.0.0",
+    "@nestjs/core": "^11.0.7",
+    "@nestjs/platform-express": "^11.0.7",
+    "@prisma/client": "^6.1.0",
+    "@polyand/analytics": "file:../../packages/analytics",
+    "@polyand/shared": "file:../../packages/shared",
+    "@polyand/types": "file:../../packages/types",
+    "bullmq": "^5.34.2",
+    "decimal.js": "^10.4.3",
+    "ioredis": "^5.4.2",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.2",
+    "@nestjs/testing": "^11.0.7",
+    "@types/node": "^22.10.5",
+    "prisma": "^6.1.0",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}
+

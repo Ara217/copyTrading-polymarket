@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "strict": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@polyand/shared": ["packages/shared/src/index.ts"],
+      "@polyand/types": ["packages/types/src/index.ts"],
+      "@polyand/analytics": ["packages/analytics/src/index.ts"]
+    }
+  }
+}
+

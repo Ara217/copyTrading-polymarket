@@ -1,0 +1,124 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Wallet {
+  id             String          @id @default(cuid())
+  address        String          @unique
+  username       String?
+  profileImage   String?
+  firstSeenAt    DateTime        @default(now())
+  lastSyncedAt   DateTime?
+  rawJson        Json?
+  source         String?
+  fetchedAt      DateTime?
+  adapterVersion String?
+  trades         Trade[]
+  positions      Position[]
+  metrics        WalletMetrics?
+  simulations    CopySimulation[]
+}
+
+model Market {
+  id             String     @id @default(cuid())
+  conditionId    String     @unique
+  slug           String?
+  title          String?
+  category       String?
+  endDate        DateTime?
+  resolved       Boolean    @default(false)
+  winningOutcome String?
+  lastKnownPrice Decimal?   @db.Decimal(18, 8)
+  rawJson        Json?
+  source         String?
+  fetchedAt      DateTime?
+  adapterVersion String?
+  trades         Trade[]
+  positions      Position[]
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  @@index([slug])
+  @@index([resolved])
+}
+
+model Trade {
+  id              String   @id @default(cuid())
+  walletAddress   String
+  marketId        String
+  conditionId     String
+  outcome         String
+  price           Decimal  @db.Decimal(18, 8)
+  size            Decimal  @db.Decimal(18, 8)
+  value           Decimal  @db.Decimal(18, 8)
+  side            String?
+  timestamp       DateTime
+  transactionHash String?
+  rawJson         Json?
+  source          String?
+  fetchedAt       DateTime?
+  adapterVersion  String?
+  wallet          Wallet   @relation(fields: [walletAddress], references: [address])
+  market          Market   @relation(fields: [marketId], references: [conditionId])
+
+  @@unique([walletAddress, transactionHash, conditionId, outcome, timestamp])
+  @@index([walletAddress, timestamp])
+  @@index([conditionId])
+}
+
+model Position {
+  id                String   @id @default(cuid())
+  walletAddress     String
+  marketId          String
+  outcome           String
+  currentShares     Decimal  @db.Decimal(18, 8)
+  averageEntryPrice Decimal  @db.Decimal(18, 8)
+  averageExitPrice  Decimal  @db.Decimal(18, 8)
+  realizedPnl       Decimal  @db.Decimal(18, 8)
+  unrealizedPnl     Decimal  @db.Decimal(18, 8)
+  totalPnl          Decimal  @db.Decimal(18, 8)
+  confidenceScore   Int
+  wallet            Wallet   @relation(fields: [walletAddress], references: [address])
+  market            Market   @relation(fields: [marketId], references: [conditionId])
+
+  @@unique([walletAddress, marketId, outcome])
+  @@index([walletAddress])
+}
+
+model WalletMetrics {
+  id            String   @id @default(cuid())
+  walletAddress String   @unique
+  totalPnl      Decimal  @db.Decimal(18, 8)
+  winrate       Decimal  @db.Decimal(18, 8)
+  volume        Decimal  @db.Decimal(18, 8)
+  drawdown      Decimal  @db.Decimal(18, 8)
+  tradeCount    Int
+  updatedAt     DateTime @updatedAt
+  wallet        Wallet   @relation(fields: [walletAddress], references: [address])
+}
+
+model CopySimulation {
+  id            String   @id @default(cuid())
+  walletAddress String
+  settingsJson  Json
+  resultJson    Json
+  createdAt     DateTime @default(now())
+  wallet        Wallet   @relation(fields: [walletAddress], references: [address])
+}
+
+model SyncJob {
+  id            String   @id @default(cuid())
+  walletAddress String
+  status        String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([walletAddress])
+  @@index([status])
+}
+

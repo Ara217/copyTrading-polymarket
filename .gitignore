@@ -1,0 +1,14 @@
+node_modules
+dist
+.cache
+.npm-cache
+.prisma-cache
+.env
+.env.local
+.env.*.local
+coverage
+.DS_Store
+apps/extension/build
+apps/extension/dist
+.playwright-mcp
+poly-network-*.txt
