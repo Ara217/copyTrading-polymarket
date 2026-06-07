@@ -82,13 +82,13 @@ The Chrome extension is a client. It can display and request analytics. It must 
 
 The backend is the analytics authority.
 
-## Next Recommended Work
+## Current Verification State
 
-Before implementing V2, validate V1 against real wallets:
+V1 has been validated against five real Polymarket profile URLs with Playwright network traces and local API refreshes. Polymarket profile slugs must resolve to the embedded `0x...` URL address because that is what the Polymarket UI passes to Data API.
 
-1. Pick 2-3 active Polymarket wallet addresses.
-2. Call `POST /api/v1/wallets/:address/refresh`.
-3. Inspect trades, positions, overview, and PnL chart.
-4. Confirm Data/Gamma/CLOB adapter response mappings.
-5. Update `docs/DECISIONS.md` if adapter assumptions change.
+Before implementing V2:
 
+1. Read `docs/versions/V1_WALLET_ANALYZER.md`.
+2. Preserve the V1 regression checklist.
+3. Treat the 1000-trade V1 sync cap as a known limitation until pagination/backfill is implemented.
+4. Update `docs/DECISIONS.md` if adapter assumptions change.

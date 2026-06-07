@@ -22,13 +22,15 @@ These notes are the source of truth for future refreshes and continuation runs.
 
 - V1 supports Polymarket profile/user pages, any URL containing a `0x...` wallet address, and manual wallet input.
 - Wallet input is validated as either an EVM address or a Polymarket profile slug before calling the API.
-- Polymarket profile slugs can look like `0x...-1773916108628`. The suffix must not be discarded because Polymarket can map that visible profile slug to a different proxy wallet used by the Data API.
+- Polymarket profile slugs can look like `0x...-1773916108628`. The backend keeps the slug valid as input, then analyzes the embedded `0x...` address. Do not scrape `/profile/{slug}` to substitute another wallet: Playwright network traces showed Polymarket profile pages call Data API with the embedded URL address for `user`, `proxyAddress`, and `user_address`.
 
 ## Refresh Architecture
 
 - Wallet refresh always uses BullMQ.
 - `POST /api/v1/wallets/:address/refresh` returns `jobId` and job status.
 - Worker syncs wallet, trades, markets, positions, and metrics.
+- Gamma market lookups are batched at 50 condition IDs per request to avoid HTTP `414 URI Too Long` on high-activity wallets.
+- Worker failures must mark both the concrete BullMQ job and the `wallet:{address}:latest` status as `failed`.
 
 ## Market Pricing
 
@@ -42,6 +44,7 @@ These notes are the source of truth for future refreshes and continuation runs.
 - V1 raw metadata includes `source`, `fetchedAt`, and `adapterVersion`.
 - A richer raw archive table is deferred to V2 or V3.
 - V1 includes a minimal market lookup cache because trade rows need market title, slug, condition id, outcome info, and resolved status.
+- V1 Data API trade sync requests up to 1000 rows per wallet. The extension displays the first 100 rows and labels the trade table with the loaded count.
 
 ## Money Math
 

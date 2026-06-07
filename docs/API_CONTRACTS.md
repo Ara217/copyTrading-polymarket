@@ -16,7 +16,7 @@ Wallet endpoints accept either:
 - EVM proxy wallet address: `0x...`
 - Polymarket profile slug: `0x...-1773916108628`
 
-When a profile slug is provided, the backend resolves it to the underlying Polymarket proxy wallet before syncing or reading analytics.
+When a profile slug is provided, the backend uses the embedded `0x...` address before syncing or reading analytics. Playwright verification against Polymarket profile pages showed the Polymarket UI calls Data API with the embedded URL address for `user`, `proxyAddress`, and `user_address`.
 
 ## POST `/wallets/:address/refresh`
 
@@ -48,6 +48,8 @@ Query params:
 - `offset`: default `0`
 
 Returns normalized trade rows with market title and transaction hash.
+
+The extension currently requests `limit=100` for display. High-activity wallets may have more stored rows in PostgreSQL because the worker syncs up to the current V1 Data API window.
 
 ## GET `/wallets/:address/positions`
 

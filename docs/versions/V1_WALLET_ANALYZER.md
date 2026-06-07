@@ -59,10 +59,28 @@ Build a working Chrome Extension and NestJS backend that can detect or accept a 
 - `npm run build`
 - `npm run dev:api`
 - `curl http://localhost:3000/api/v1/health`
+- Refresh at least one Polymarket profile slug shaped like `0x...-timestamp` and confirm the API returns the embedded `0x...` address.
+- For high-activity wallets, confirm `/trades` returns more than the few rows visible in the extension viewport and that the extension header shows the loaded trade count.
+
+## Real Wallet Verification
+
+On June 7, 2026, V1 was checked with Playwright against these Polymarket profile pages:
+
+- `0xcf609d3256f0f37f0595e5dc64012fa3a8fea6f5-1771809916847`
+- `0x4e20f8e9fed43de49cb5eb92c3913d852ab6d6dd-1763117481321`
+- `0xfbd8c9c22ca76b3662d0e53a4f79719fdc684027-1779347618060`
+- `0xa9c4b118095a4f67ba9ba461aadf6a9cfe5e7433-1721318888203`
+- `0xdbdd45150249e229eb4ca8aa48a30dca21faa5de-1757094771846`
+
+Findings:
+
+- Polymarket profile pages call Data API with the embedded URL address.
+- All five backend refresh jobs completed after Gamma lookup batching.
+- Stored trade counts were `93`, `88`, or the current V1 cap of `1000`, depending on wallet activity.
+- The extension loaded 100 display rows and showed `100 loaded`; only seeing a few rows is a viewport/scrolling concern, not missing API data.
 
 ## Known Follow-Up Risks
 
-- Polymarket Data/Gamma/CLOB response shapes must be tested against several real wallets.
+- V1 still caps Data API trade sync at 1000 rows; pagination/backfill should be added before serious historical performance claims.
 - CLOB token id mapping may need refinement beyond the V1 condition-id fallback.
 - Extension bundle is large because ECharts is bundled eagerly.
-

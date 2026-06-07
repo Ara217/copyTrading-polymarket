@@ -32,7 +32,7 @@ Load `apps/extension/dist` as an unpacked Chrome extension.
 
 ## Version 1 Flow
 
-1. Paste a wallet or open a Polymarket URL containing a wallet address.
+1. Paste a wallet address, a Polymarket profile slug shaped like `0x...-timestamp`, or any Polymarket URL containing one.
 2. Click `Refresh` to enqueue a BullMQ wallet sync job.
 3. Wait for the worker to fetch trades and reconstruct positions.
 4. Click `Load` to view overview metrics, positions, trades, and PnL chart.
@@ -41,6 +41,8 @@ Load `apps/extension/dist` as an unpacked Chrome extension.
 
 - All analytics run on the backend.
 - All money math uses Decimal.js.
+- Profile slugs resolve to the embedded `0x...` address, matching Polymarket's own Data API calls.
+- V1 syncs up to the current 1000-trade Data API window; the extension displays the first 100 loaded rows.
 - V1 stores raw JSON on domain models with `source`, `fetchedAt`, and `adapterVersion`.
 - Critical decisions are tracked in [docs/DECISIONS.md](docs/DECISIONS.md).
 - Future implementation instructions are in [docs/versions](docs/versions).

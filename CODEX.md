@@ -99,6 +99,9 @@ The app has been verified with:
 - Prisma migration applied.
 - API health endpoint returning `{"data":{"ok":true}}`.
 - Tests/typecheck/build passing.
+- Five Polymarket profile URLs checked with Playwright network traces.
+- Profile slugs shaped `0x...-timestamp` resolve to the embedded `0x...` address, matching Polymarket Data API calls.
+- High-activity wallets can store 1000 V1 Data API trades while the extension displays the first 100 and shows the loaded count.
 
 ## Boundaries
 
@@ -116,4 +119,3 @@ When adding a version feature:
 - Update `docs/API_CONTRACTS.md` for endpoint changes.
 - Update `docs/DECISIONS.md` for architectural or scoring decisions.
 - Update `docs/ROADMAP.md` when a version is completed.
-

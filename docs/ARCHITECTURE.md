@@ -59,11 +59,11 @@ GET  /wallets/:address/pnl-chart
 
 ## Data Lifecycle
 
-1. Extension detects or accepts a wallet address.
+1. Extension detects or accepts a wallet address or Polymarket profile slug.
 2. User triggers refresh.
-3. API validates wallet and enqueues `wallet-sync`.
+3. API validates the identifier, resolves profile slugs to their embedded `0x...` address, and enqueues `wallet-sync`.
 4. Worker fetches raw wallet trades from Polymarket adapters.
-5. Worker upserts wallet, markets, trades, positions, and metrics.
+5. Worker upserts wallet, batched Gamma market metadata, trades, positions, and metrics.
 6. API caches wallet overview for 15 minutes.
 7. Extension reads overview, trades, positions, and PnL chart from API.
 
@@ -76,4 +76,3 @@ GET  /wallets/:address/pnl-chart
 - `20`: severe inconsistency.
 
 V1 computes confidence from data completeness and reconstruction consistency.
-
