@@ -50,6 +50,70 @@ export interface PnlPoint {
   cumulativePnl: string;
 }
 
+export interface MarketResolution {
+  marketId: string;
+  resolved?: boolean;
+}
+
+export interface TradeHighlight {
+  tradeId: string;
+  marketId: string;
+  conditionId: string;
+  outcome: string;
+  timestamp: string;
+  pnl: string;
+  price: string;
+  size: string;
+}
+
+export interface ProfitDistributionBucket {
+  bucket: string;
+  count: number;
+}
+
+export interface WinLossPoint {
+  date: string;
+  wins: number;
+  losses: number;
+}
+
+export interface DrawdownPoint {
+  date: string;
+  cumulativePnl: string;
+  drawdown: string;
+}
+
+export type TradePositionEffect = "entry" | "add" | "reduce" | "close";
+export type TradeResult = "open" | "win" | "loss" | "flat";
+
+export interface TradeHistoryAnalytics {
+  tradeId: string;
+  side: TradeSide;
+  positionEffect: TradePositionEffect;
+  realizedPnl: string;
+  result: TradeResult;
+  remainingShares: string;
+}
+
+export interface AdvancedPerformanceResult {
+  realizedPnl: string;
+  unrealizedPnl: string;
+  totalPnl: string;
+  roi: string;
+  tradeWinrate: string;
+  marketWinrate: string;
+  resolvedMarketWinrate: string;
+  maxDrawdown: string;
+  currentDrawdown: string;
+  averageDrawdown: string;
+  longestWinStreak: number;
+  longestLossStreak: number;
+  bestTrade: TradeHighlight | null;
+  worstTrade: TradeHighlight | null;
+  profitDistribution: ProfitDistributionBucket[];
+  winLossChart: WinLossPoint[];
+}
+
 interface PositionAccumulator {
   marketId: string;
   conditionId: string;
@@ -60,6 +124,11 @@ interface PositionAccumulator {
   exitCount: Decimal;
   realizedPnl: Decimal;
   confidenceScore: number;
+}
+
+interface ClosedTradeResult {
+  trade: AnalyticsTrade;
+  pnl: Decimal;
 }
 
 function decimal(value: string | number | Decimal): Decimal {
@@ -285,4 +354,311 @@ export function calculateMaxDrawdown(points: PnlPoint[]): string {
   }
 
   return money(maxDrawdown);
+}
+
+export function buildDrawdownChart(points: PnlPoint[]): DrawdownPoint[] {
+  let peak = new Decimal(0);
+
+  return points.map((point) => {
+    const equity = decimal(point.cumulativePnl);
+    peak = Decimal.max(peak, equity);
+    return {
+      date: point.date,
+      cumulativePnl: money(equity),
+      drawdown: money(peak.minus(equity))
+    };
+  });
+}
+
+export function buildTradeHistoryAnalytics(trades: AnalyticsTrade[]): TradeHistoryAnalytics[] {
+  const sortedTrades = [...trades].sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  );
+  const openPositions = new Map<string, { shares: Decimal; costBasis: Decimal }>();
+
+  return sortedTrades.map((trade) => {
+    const key = positionKey(trade);
+    const current = openPositions.get(key) ?? {
+      shares: new Decimal(0),
+      costBasis: new Decimal(0)
+    };
+    const side = normalizedSide(trade);
+    const price = decimal(trade.price);
+    const size = decimal(trade.size).abs();
+
+    if (side === "buy") {
+      const positionEffect: TradePositionEffect = current.shares.gt(0) ? "add" : "entry";
+      const next = {
+        shares: current.shares.plus(size),
+        costBasis: current.costBasis.plus(price.mul(size))
+      };
+      openPositions.set(key, next);
+
+      return {
+        tradeId: trade.id,
+        side,
+        positionEffect,
+        realizedPnl: "0",
+        result: "open",
+        remainingShares: money(next.shares)
+      };
+    }
+
+    const sharesToClose = Decimal.min(size, current.shares);
+    const averageEntry = current.shares.gt(0) ? current.costBasis.div(current.shares) : new Decimal(0);
+    const realizedPnl = price.minus(averageEntry).mul(sharesToClose);
+    const next = {
+      shares: current.shares.minus(sharesToClose),
+      costBasis: current.costBasis.minus(averageEntry.mul(sharesToClose))
+    };
+    openPositions.set(key, next);
+
+    return {
+      tradeId: trade.id,
+      side,
+      positionEffect: next.shares.isZero() ? "close" : "reduce",
+      realizedPnl: money(realizedPnl),
+      result: tradeResult(realizedPnl),
+      remainingShares: money(next.shares)
+    };
+  });
+}
+
+function tradeResult(realizedPnl: Decimal): TradeResult {
+  if (realizedPnl.gt(0)) {
+    return "win";
+  }
+  if (realizedPnl.lt(0)) {
+    return "loss";
+  }
+  return "flat";
+}
+
+export function calculateAdvancedPerformance(
+  trades: AnalyticsTrade[],
+  positions: ReconstructedPosition[],
+  marketResolutions: MarketResolution[] = []
+): AdvancedPerformanceResult {
+  const closedTrades = buildClosedTradeResults(trades);
+  const pnlPoints = buildPnlChart(trades, positions);
+  const drawdowns = calculateDrawdowns(pnlPoints);
+  const streaks = calculateStreaks(closedTrades);
+
+  const realizedPnl = positions.reduce(
+    (sum, position) => sum.plus(position.realizedPnl),
+    new Decimal(0)
+  );
+  const unrealizedPnl = positions.reduce(
+    (sum, position) => sum.plus(position.unrealizedPnl),
+    new Decimal(0)
+  );
+  const totalPnl = realizedPnl.plus(unrealizedPnl);
+  const investedCapital = trades.reduce((sum, trade) => {
+    if (normalizedSide(trade) !== "buy") {
+      return sum;
+    }
+    return sum.plus(decimal(trade.price).mul(decimal(trade.size).abs()));
+  }, new Decimal(0));
+
+  const winningClosedTrades = closedTrades.filter((result) => result.pnl.gt(0)).length;
+  const winningMarkets = positions.filter((position) => decimal(position.totalPnl).gt(0)).length;
+  const resolvedMarketIds = new Set(
+    marketResolutions
+      .filter((market) => market.resolved)
+      .map((market) => market.marketId)
+  );
+  const resolvedPositions = positions.filter((position) => resolvedMarketIds.has(position.marketId));
+  const winningResolvedMarkets = resolvedPositions.filter((position) => decimal(position.totalPnl).gt(0)).length;
+  const bestTrade = selectTradeHighlight(closedTrades, "best");
+  const worstTrade = selectTradeHighlight(closedTrades, "worst");
+
+  return {
+    realizedPnl: money(realizedPnl),
+    unrealizedPnl: money(unrealizedPnl),
+    totalPnl: money(totalPnl),
+    roi: investedCapital.isZero() ? "0" : money(totalPnl.div(investedCapital)),
+    tradeWinrate: closedTrades.length === 0 ? "0" : money(new Decimal(winningClosedTrades).div(closedTrades.length)),
+    marketWinrate: positions.length === 0 ? "0" : money(new Decimal(winningMarkets).div(positions.length)),
+    resolvedMarketWinrate:
+      resolvedPositions.length === 0 ? "0" : money(new Decimal(winningResolvedMarkets).div(resolvedPositions.length)),
+    maxDrawdown: money(drawdowns.maxDrawdown),
+    currentDrawdown: money(drawdowns.currentDrawdown),
+    averageDrawdown: money(drawdowns.averageDrawdown),
+    longestWinStreak: streaks.longestWinStreak,
+    longestLossStreak: streaks.longestLossStreak,
+    bestTrade,
+    worstTrade,
+    profitDistribution: buildProfitDistribution(positions),
+    winLossChart: buildWinLossChart(closedTrades)
+  };
+}
+
+function buildClosedTradeResults(trades: AnalyticsTrade[]): ClosedTradeResult[] {
+  const sortedTrades = [...trades].sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  );
+  const openPositions = new Map<string, { shares: Decimal; costBasis: Decimal }>();
+  const results: ClosedTradeResult[] = [];
+
+  for (const trade of sortedTrades) {
+    const key = positionKey(trade);
+    const current = openPositions.get(key) ?? {
+      shares: new Decimal(0),
+      costBasis: new Decimal(0)
+    };
+    const price = decimal(trade.price);
+    const size = decimal(trade.size).abs();
+
+    if (normalizedSide(trade) === "buy") {
+      openPositions.set(key, {
+        shares: current.shares.plus(size),
+        costBasis: current.costBasis.plus(price.mul(size))
+      });
+      continue;
+    }
+
+    const sharesToClose = Decimal.min(size, current.shares);
+    const averageEntry = current.shares.gt(0) ? current.costBasis.div(current.shares) : new Decimal(0);
+    const pnl = price.minus(averageEntry).mul(sharesToClose);
+    openPositions.set(key, {
+      shares: current.shares.minus(sharesToClose),
+      costBasis: current.costBasis.minus(averageEntry.mul(sharesToClose))
+    });
+    results.push({ trade, pnl });
+  }
+
+  return results;
+}
+
+function calculateDrawdowns(points: PnlPoint[]): {
+  maxDrawdown: Decimal;
+  currentDrawdown: Decimal;
+  averageDrawdown: Decimal;
+} {
+  let peak = new Decimal(0);
+  let maxDrawdown = new Decimal(0);
+  let currentDrawdown = new Decimal(0);
+  let drawdownTotal = new Decimal(0);
+  let drawdownCount = 0;
+
+  for (const point of points) {
+    const equity = decimal(point.cumulativePnl);
+    peak = Decimal.max(peak, equity);
+    const drawdown = peak.minus(equity);
+    maxDrawdown = Decimal.max(maxDrawdown, drawdown);
+    currentDrawdown = drawdown;
+    if (drawdown.gt(0)) {
+      drawdownTotal = drawdownTotal.plus(drawdown);
+      drawdownCount += 1;
+    }
+  }
+
+  return {
+    maxDrawdown,
+    currentDrawdown,
+    averageDrawdown: drawdownCount === 0 ? new Decimal(0) : drawdownTotal.div(drawdownCount)
+  };
+}
+
+function calculateStreaks(results: ClosedTradeResult[]): {
+  longestWinStreak: number;
+  longestLossStreak: number;
+} {
+  let currentType: "win" | "loss" | null = null;
+  let currentCount = 0;
+  let longestWinStreak = 0;
+  let longestLossStreak = 0;
+
+  for (const result of results) {
+    if (result.pnl.isZero()) {
+      currentType = null;
+      currentCount = 0;
+      continue;
+    }
+
+    const nextType = result.pnl.gt(0) ? "win" : "loss";
+    currentCount = currentType === nextType ? currentCount + 1 : 1;
+    currentType = nextType;
+
+    if (nextType === "win") {
+      longestWinStreak = Math.max(longestWinStreak, currentCount);
+    } else {
+      longestLossStreak = Math.max(longestLossStreak, currentCount);
+    }
+  }
+
+  return { longestWinStreak, longestLossStreak };
+}
+
+function selectTradeHighlight(results: ClosedTradeResult[], mode: "best" | "worst"): TradeHighlight | null {
+  const selected = results.reduce<ClosedTradeResult | null>((current, result) => {
+    if (!current) {
+      return result;
+    }
+    return mode === "best"
+      ? result.pnl.gt(current.pnl)
+        ? result
+        : current
+      : result.pnl.lt(current.pnl)
+        ? result
+        : current;
+  }, null);
+
+  if (!selected) {
+    return null;
+  }
+
+  return {
+    tradeId: selected.trade.id,
+    marketId: selected.trade.marketId,
+    conditionId: selected.trade.conditionId,
+    outcome: selected.trade.outcome,
+    timestamp: selected.trade.timestamp,
+    pnl: money(selected.pnl),
+    price: money(decimal(selected.trade.price)),
+    size: money(decimal(selected.trade.size).abs())
+  };
+}
+
+function buildProfitDistribution(positions: ReconstructedPosition[]): ProfitDistributionBucket[] {
+  const buckets = [
+    { bucket: "< -$100", count: 0, matches: (value: Decimal) => value.lt(-100) },
+    { bucket: "-$100 to -$10", count: 0, matches: (value: Decimal) => value.gte(-100) && value.lt(-10) },
+    { bucket: "-$10 to $0", count: 0, matches: (value: Decimal) => value.gte(-10) && value.lt(0) },
+    { bucket: "$0 to $10", count: 0, matches: (value: Decimal) => value.gte(0) && value.lt(10) },
+    { bucket: "$10 to $100", count: 0, matches: (value: Decimal) => value.gte(10) && value.lte(100) },
+    { bucket: "> $100", count: 0, matches: (value: Decimal) => value.gt(100) }
+  ];
+
+  const countedBuckets = positions.reduce(
+    (currentBuckets, position) =>
+      currentBuckets.map((bucket) =>
+        bucket.matches(decimal(position.totalPnl))
+          ? { ...bucket, count: bucket.count + 1 }
+          : bucket
+      ),
+    buckets
+  );
+
+  return countedBuckets.map(({ bucket, count }) => ({ bucket, count }));
+}
+
+function buildWinLossChart(results: ClosedTradeResult[]): WinLossPoint[] {
+  const byDate = new Map<string, WinLossPoint>();
+
+  for (const result of results) {
+    if (result.pnl.isZero()) {
+      continue;
+    }
+
+    const date = new Date(result.trade.timestamp).toISOString().slice(0, 10);
+    const existing = byDate.get(date) ?? { date, wins: 0, losses: 0 };
+    byDate.set(date, {
+      date,
+      wins: existing.wins + (result.pnl.gt(0) ? 1 : 0),
+      losses: existing.losses + (result.pnl.lt(0) ? 1 : 0)
+    });
+  }
+
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }

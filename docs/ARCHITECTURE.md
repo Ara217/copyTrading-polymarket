@@ -1,15 +1,15 @@
-# Polymarket Analytics Platform Architecture
+# Polymarket Copy-Trading Intelligence Architecture
 
 ## Capability
 
-The platform lets a local user analyze Polymarket wallets by reconstructing trade history, positions, real PnL, winrate, volume, and confidence from raw Polymarket API data. The first version delivers a minimum viable wallet analyzer through a Chrome extension backed by a NestJS API, PostgreSQL, Redis, and BullMQ workers.
+The platform lets a local user discover, validate, monitor, and manually copy successful Polymarket traders by reconstructing wallet trade history, positions, PnL, winrate, volume, drawdown, confidence, and copyability signals from raw Polymarket API data. The first versions deliver a wallet analyzer and copy-trading decision dashboard through a Chrome extension and web UI backed by a NestJS API, PostgreSQL, Redis, and BullMQ workers.
 
 ## Non-Goals
 
 - No trade execution.
 - No custody, wallet signing, private keys, or auto-trading.
 - No user accounts or team permissions in V1.
-- No leaderboard, copy simulator, alerts, whale module, or institutional analytics until later versions.
+- No copy simulator, ranking, screener, action feed, alerts, or multi-wallet portfolio analytics until their planned versions.
 
 ## System Topology
 
@@ -38,6 +38,7 @@ Polymarket adapters
 apps/
   api/          NestJS API, Prisma schema, BullMQ worker
   extension/    Chrome extension MV3 UI
+  web/          Full-page React wallet dashboard
 packages/
   analytics/    Decimal.js position reconstruction and metrics
   shared/       API schemas, wallet validation, response envelopes
@@ -65,7 +66,18 @@ GET  /wallets/:address/pnl-chart
 4. Worker fetches raw wallet trades from Polymarket adapters.
 5. Worker upserts wallet, batched Gamma market metadata, trades, positions, and metrics.
 6. API caches wallet overview for 15 minutes.
-7. Extension reads overview, trades, positions, and PnL chart from API.
+7. Extension and web UI read overview, trades, positions, performance, and chart data from API.
+
+## Copy-Trading Workflow
+
+1. Analyze a wallet's positions, trade history, and performance.
+2. Confirm data quality and copy readiness.
+3. Simulate copying the wallet with realistic sizing, delay, and risk limits.
+4. Rank and screen wallets by copyability.
+5. Watch selected wallets through action feed and alerts.
+6. Manually decide whether to copy a trade on Polymarket.
+
+The platform stops at decision support. Live execution is outside the product boundary.
 
 ## Data Quality Confidence
 

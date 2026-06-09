@@ -1,6 +1,7 @@
 import ReactECharts from "echarts-for-react";
 import type { PnlChartPoint } from "@polyand/types";
 import { formatAmount } from "../utils/format";
+import { SectionHeader } from "./InfoTooltip";
 
 interface PnlChartProps {
   points: PnlChartPoint[];
@@ -46,7 +47,10 @@ export function PnlChart({ points }: PnlChartProps) {
 
   return (
     <div className="mt-3 rounded-md border border-line bg-white">
-      <div className="border-b border-line px-3 py-2 text-sm font-semibold">PnL Chart</div>
+      <SectionHeader
+        title="PnL Chart"
+        description="Daily bars show PnL changes; the line shows cumulative reconstructed PnL."
+      />
       <div className="h-[220px]">
         <ReactECharts option={option} style={{ height: "220px", width: "100%" }} />
       </div>

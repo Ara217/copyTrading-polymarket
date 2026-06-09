@@ -6,14 +6,15 @@ Implemented as the current baseline. Keep this file as the regression checklist 
 
 ## Goal
 
-Build a working Chrome Extension and NestJS backend that can detect or accept a Polymarket wallet address, sync historical wallet data through backend workers, reconstruct positions, and display overview metrics, trades, positions, and PnL charts.
+Build a working Chrome Extension and NestJS backend that can detect or accept a Polymarket wallet address, sync wallet data through backend workers, reconstruct positions, and display overview metrics, trades, positions, and PnL charts. V1 is the foundation for later copy-trading intelligence.
 
 ## Non-Goals
 
 - No auto-trading.
 - No copy execution.
+- No copy recommendations.
 - No user accounts.
-- No rankings, screener, alerts, copy simulator, whale analytics, or institutional analytics.
+- No copy readiness, simulator, copyability ranking, screener, action feed, alerts, or multi-wallet copy analytics.
 
 ## Required Architecture
 
@@ -76,11 +77,11 @@ Findings:
 
 - Polymarket profile pages call Data API with the embedded URL address.
 - All five backend refresh jobs completed after Gamma lookup batching.
-- Stored trade counts were `93`, `88`, or the current V1 cap of `1000`, depending on wallet activity.
+- Stored trade counts depended on wallet activity and the configured public Data API sync window.
 - The extension loaded 100 display rows and showed `100 loaded`; only seeing a few rows is a viewport/scrolling concern, not missing API data.
 
 ## Known Follow-Up Risks
 
-- V1 still caps Data API trade sync at 1000 rows; pagination/backfill should be added before serious historical performance claims.
+- Future enhancement: investigate deeper historical backfill sources for wallets whose public Data API history is incomplete for lifetime performance claims.
 - CLOB token id mapping may need refinement beyond the V1 condition-id fallback.
 - Extension bundle is large because ECharts is bundled eagerly.

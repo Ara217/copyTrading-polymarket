@@ -91,15 +91,30 @@ model Position {
 }
 
 model WalletMetrics {
-  id            String   @id @default(cuid())
-  walletAddress String   @unique
-  totalPnl      Decimal  @db.Decimal(18, 8)
-  winrate       Decimal  @db.Decimal(18, 8)
-  volume        Decimal  @db.Decimal(18, 8)
-  drawdown      Decimal  @db.Decimal(18, 8)
-  tradeCount    Int
-  updatedAt     DateTime @updatedAt
-  wallet        Wallet   @relation(fields: [walletAddress], references: [address])
+  id                        String   @id @default(cuid())
+  walletAddress             String   @unique
+  totalPnl                  Decimal  @db.Decimal(18, 8)
+  winrate                   Decimal  @db.Decimal(18, 8)
+  volume                    Decimal  @db.Decimal(18, 8)
+  drawdown                  Decimal  @db.Decimal(18, 8)
+  tradeCount                Int
+  realizedPnl               Decimal  @default(0) @db.Decimal(18, 8)
+  unrealizedPnl             Decimal  @default(0) @db.Decimal(18, 8)
+  roi                       Decimal  @default(0) @db.Decimal(18, 8)
+  tradeWinrate              Decimal  @default(0) @db.Decimal(18, 8)
+  marketWinrate             Decimal  @default(0) @db.Decimal(18, 8)
+  resolvedMarketWinrate     Decimal  @default(0) @db.Decimal(18, 8)
+  maxDrawdown               Decimal  @default(0) @db.Decimal(18, 8)
+  currentDrawdown           Decimal  @default(0) @db.Decimal(18, 8)
+  averageDrawdown           Decimal  @default(0) @db.Decimal(18, 8)
+  longestWinStreak          Int      @default(0)
+  longestLossStreak         Int      @default(0)
+  bestTradeJson             Json?
+  worstTradeJson            Json?
+  profitDistributionJson    Json?
+  winLossChartJson          Json?
+  updatedAt                 DateTime @updatedAt
+  wallet                    Wallet   @relation(fields: [walletAddress], references: [address])
 }
 
 model CopySimulation {
@@ -121,4 +136,3 @@ model SyncJob {
   @@index([walletAddress])
   @@index([status])
 }
-

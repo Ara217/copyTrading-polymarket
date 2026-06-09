@@ -2,7 +2,9 @@
 
 ## Goal
 
-Extend the V1 wallet analyzer into a professional wallet analytics dashboard with realized/unrealized PnL, ROI, winrate variants, drawdown metrics, streaks, and best/worst trade analysis.
+Extend the V1 wallet analyzer into a professional copy-trading research dashboard with realized/unrealized PnL, ROI, winrate variants, drawdown metrics, streaks, best/worst trade analysis, and related trade drilldowns.
+
+V2 does not decide whether to copy a wallet yet. It provides the performance evidence that later copy-readiness, simulator, ranking, and alert versions will use.
 
 ## Start Gate
 
@@ -77,7 +79,7 @@ Keep the response envelope format:
 
 ## Extension Scope
 
-Add dashboard sections:
+Add dashboard sections in extension and web:
 
 - Performance summary metrics
 - Drawdown chart
@@ -85,6 +87,7 @@ Add dashboard sections:
 - Win/loss chart
 - Best and worst trade cards
 - Streaks section
+- Position-to-trade-history drilldown
 
 Keep dense analytics UI. Do not build a marketing page.
 
@@ -108,4 +111,3 @@ Add API tests for validation and response shape.
 - Extension displays V2 data without doing heavy calculations.
 - Tests, typecheck, build pass.
 - `docs/API_CONTRACTS.md` and `docs/ROADMAP.md` updated.
-

@@ -39,6 +39,12 @@ export interface TradeRow {
   size: string;
   value: string;
   transactionHash: string | null;
+  side: "buy" | "sell";
+  positionEffect: "entry" | "add" | "reduce" | "close";
+  realizedPnl: string;
+  result: "open" | "win" | "loss" | "flat";
+  remainingShares: string;
+  marketResolved: boolean;
 }
 
 export interface PositionRow {
@@ -54,12 +60,59 @@ export interface PositionRow {
   unrealizedPnl: string;
   totalPnl: string;
   confidenceScore: number;
+  lastTradeAt: string | null;
 }
 
 export interface PnlChartPoint {
   date: string;
   dailyPnl: string;
   cumulativePnl: string;
+}
+
+export interface TradeHighlight {
+  tradeId: string;
+  marketId: string;
+  conditionId: string;
+  outcome: string;
+  timestamp: string;
+  pnl: string;
+  price: string;
+  size: string;
+  marketTitle?: string | null;
+}
+
+export interface ProfitDistributionBucket {
+  bucket: string;
+  count: number;
+}
+
+export interface WinLossChartPoint {
+  date: string;
+  wins: number;
+  losses: number;
+}
+
+export interface DrawdownChartPoint {
+  date: string;
+  cumulativePnl: string;
+  drawdown: string;
+}
+
+export interface WalletPerformance {
+  realizedPnl: string;
+  unrealizedPnl: string;
+  totalPnl: string;
+  roi: string;
+  tradeWinrate: string;
+  marketWinrate: string;
+  resolvedMarketWinrate: string;
+  maxDrawdown: string;
+  currentDrawdown: string;
+  averageDrawdown: string;
+  longestWinStreak: number;
+  longestLossStreak: number;
+  bestTrade: TradeHighlight | null;
+  worstTrade: TradeHighlight | null;
 }
 
 export interface ApiSuccess<T> {

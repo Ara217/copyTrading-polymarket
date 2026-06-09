@@ -1,5 +1,15 @@
 import { create } from "zustand";
-import type { PnlChartPoint, PositionRow, RefreshWalletResponse, TradeRow, WalletOverview } from "@polyand/types";
+import type {
+  DrawdownChartPoint,
+  PnlChartPoint,
+  PositionRow,
+  ProfitDistributionBucket,
+  RefreshWalletResponse,
+  TradeRow,
+  WalletOverview,
+  WalletPerformance,
+  WinLossChartPoint
+} from "@polyand/types";
 import { extractWalletIdentifierFromText, parseWalletIdentifier } from "@polyand/shared";
 import { api } from "../api/client";
 
@@ -10,6 +20,10 @@ interface WalletState {
   trades: TradeRow[];
   positions: PositionRow[];
   pnlChart: PnlChartPoint[];
+  performance: WalletPerformance | null;
+  drawdownChart: DrawdownChartPoint[];
+  profitDistribution: ProfitDistributionBucket[];
+  winLossChart: WinLossChartPoint[];
   refreshJob: RefreshWalletResponse | null;
   loading: boolean;
   error: string | null;
@@ -26,6 +40,10 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   trades: [],
   positions: [],
   pnlChart: [],
+  performance: null,
+  drawdownChart: [],
+  profitDistribution: [],
+  winLossChart: [],
   refreshJob: null,
   loading: false,
   error: null,
@@ -56,13 +74,18 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     const address = normalizeIdentifier(get().address);
     set({ loading: true, error: null });
     try {
-      const [overview, trades, positions, pnlChart] = await Promise.all([
+      const [overview, trades, positions, pnlChart, performance, drawdownChart, profitDistribution, winLossChart] =
+        await Promise.all([
         api.getOverview(address),
         api.getTrades(address),
         api.getPositions(address),
-        api.getPnlChart(address)
+        api.getPnlChart(address),
+        api.getPerformance(address),
+        api.getDrawdownChart(address),
+        api.getProfitDistribution(address),
+        api.getWinLossChart(address)
       ]);
-      set({ overview, trades, positions, pnlChart });
+      set({ overview, trades, positions, pnlChart, performance, drawdownChart, profitDistribution, winLossChart });
     } catch (error) {
       set({ error: error instanceof Error ? error.message : "Wallet load failed" });
     } finally {

@@ -5,7 +5,8 @@ These notes are the source of truth for future refreshes and continuation runs.
 ## V1 Scope
 
 - Build only Version 1 before moving to advanced analytics.
-- Product is an analytics platform, not a trading bot and not an auto-trading system.
+- Product is a copy-trading intelligence platform, not a trading bot and not an auto-trading system.
+- The platform helps users discover, validate, monitor, and manually copy successful Polymarket traders.
 - No authentication in V1; this is a local/private analytics tool.
 - Chrome extension owns UI, charts, tables, search, and wallet detection only.
 - Backend owns all analytics, position reconstruction, PnL, queueing, persistence, and API integration.
@@ -44,7 +45,7 @@ These notes are the source of truth for future refreshes and continuation runs.
 - V1 raw metadata includes `source`, `fetchedAt`, and `adapterVersion`.
 - A richer raw archive table is deferred to V2 or V3.
 - V1 includes a minimal market lookup cache because trade rows need market title, slug, condition id, outcome info, and resolved status.
-- V1 Data API trade sync requests up to 1000 rows per wallet. The extension displays the first 100 rows and labels the trade table with the loaded count.
+- Data API trade sync paginates through the configured public API window. Future enhancement: investigate additional history sources or archival strategies for deeper lifetime analysis when upstream public pagination is incomplete.
 
 ## Money Math
 

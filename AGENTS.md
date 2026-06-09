@@ -4,7 +4,7 @@ This file is the shared handoff for all coding agents working in this repository
 
 ## Project
 
-Polymarket Analytics Platform for evaluating Polymarket wallets and copy-trading opportunities.
+Polymarket Copy-Trading Intelligence Platform for evaluating Polymarket wallets, finding copy candidates, simulating manual copy strategies, and monitoring trader actions.
 
 This is not a trading bot. This system must not execute trades, sign transactions, custody funds, store private keys, or automate live trading.
 
@@ -22,12 +22,12 @@ Version files:
 
 - `docs/versions/V1_WALLET_ANALYZER.md`
 - `docs/versions/V2_PERFORMANCE_ANALYTICS.md`
-- `docs/versions/V3_WHALE_ANALYTICS.md`
+- `docs/versions/V3_COPY_READINESS.md`
 - `docs/versions/V4_COPY_TRADING_SIMULATOR.md`
-- `docs/versions/V5_WALLET_RANKING.md`
-- `docs/versions/V6_WALLET_SCREENER.md`
-- `docs/versions/V7_ALERT_SYSTEM.md`
-- `docs/versions/V8_INSTITUTIONAL_ANALYTICS.md`
+- `docs/versions/V5_COPYABILITY_RANKING.md`
+- `docs/versions/V6_COPY_CANDIDATE_SCREENER.md`
+- `docs/versions/V7_COPY_ACTION_FEED_ALERTS.md`
+- `docs/versions/V8_PORTFOLIO_MULTI_WALLET_ANALYTICS.md`
 
 ## Version Discipline
 
@@ -110,6 +110,7 @@ Repository:
 apps/
   api/
   extension/
+  web/
 packages/
   shared/
   types/
@@ -213,4 +214,3 @@ Load `apps/extension/dist` as an unpacked Chrome extension.
 ## Current Baseline
 
 V1 is implemented. Before starting V2, validate real Polymarket wallet syncs and inspect adapter output quality.
-

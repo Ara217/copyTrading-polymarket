@@ -49,12 +49,83 @@ Query params:
 
 Returns normalized trade rows with market title and transaction hash.
 
-The extension currently requests `limit=100` for display. High-activity wallets may have more stored rows in PostgreSQL because the worker syncs up to the current V1 Data API window.
+The extension currently requests `limit=100` for compact display. The web UI can request and display broader tables. High-activity wallets may have more stored rows in PostgreSQL because the worker paginates through the configured public Data API window.
+
+Trade rows are enriched by the backend with reconstruction context:
+
+- `side`: `buy` or `sell`
+- `positionEffect`: `entry`, `add`, `reduce`, or `close`
+- `realizedPnl`: realized PnL for sell/reduce/close rows, otherwise `0`
+- `result`: `open`, `win`, `loss`, or `flat`
+- `remainingShares`: shares left in that market/outcome after applying the trade
+- `marketResolved`: whether the market is known resolved
+
+Buy rows usually remain `open` because win/loss is not known until a sell/reduction or market resolution.
 
 ## GET `/wallets/:address/positions`
 
 Returns reconstructed positions and confidence score.
 
+Rows are ordered by latest trade activity, newest first. For closed positions this timestamp is usually the close/sell event; for open positions it is the most recent buy or sell touching that market/outcome.
+
+Each row includes `lastTradeAt` so clients can show why the row appears in that order.
+
 ## GET `/wallets/:address/pnl-chart`
 
 Returns daily and cumulative PnL points.
+
+## GET `/wallets/:address/performance`
+
+Returns V2 performance analytics computed by the backend:
+
+- `realizedPnl`
+- `unrealizedPnl`
+- `totalPnl`
+- `roi`
+- `tradeWinrate`
+- `marketWinrate`
+- `resolvedMarketWinrate`
+- `maxDrawdown`
+- `currentDrawdown`
+- `averageDrawdown`
+- `longestWinStreak`
+- `longestLossStreak`
+- `bestTrade`
+- `worstTrade`
+
+All money and percentage values are serialized as strings.
+
+## GET `/wallets/:address/drawdown-chart`
+
+Returns cumulative PnL and drawdown points:
+
+```ts
+type DrawdownChartPoint = {
+  date: string
+  cumulativePnl: string
+  drawdown: string
+}
+```
+
+## GET `/wallets/:address/profit-distribution`
+
+Returns market-level PnL bucket counts:
+
+```ts
+type ProfitDistributionBucket = {
+  bucket: string
+  count: number
+}
+```
+
+## GET `/wallets/:address/win-loss-chart`
+
+Returns closed-trade win/loss counts by date:
+
+```ts
+type WinLossChartPoint = {
+  date: string
+  wins: number
+  losses: number
+}
+```

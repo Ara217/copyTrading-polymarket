@@ -59,6 +59,26 @@ export class WalletsController {
     return success(await this.walletsService.getPnlChart(await this.resolveIdentifier(rawAddress)));
   }
 
+  @Get(":address/performance")
+  async performance(@Param("address") rawAddress: string) {
+    return success(await this.walletsService.getPerformance(await this.resolveIdentifier(rawAddress)));
+  }
+
+  @Get(":address/drawdown-chart")
+  async drawdownChart(@Param("address") rawAddress: string) {
+    return success(await this.walletsService.getDrawdownChart(await this.resolveIdentifier(rawAddress)));
+  }
+
+  @Get(":address/profit-distribution")
+  async profitDistribution(@Param("address") rawAddress: string) {
+    return success(await this.walletsService.getProfitDistribution(await this.resolveIdentifier(rawAddress)));
+  }
+
+  @Get(":address/win-loss-chart")
+  async winLossChart(@Param("address") rawAddress: string) {
+    return success(await this.walletsService.getWinLossChart(await this.resolveIdentifier(rawAddress)));
+  }
+
   private async resolveIdentifier(identifier: string): Promise<string> {
     try {
       return await this.walletsService.resolveWalletIdentifier(identifier);

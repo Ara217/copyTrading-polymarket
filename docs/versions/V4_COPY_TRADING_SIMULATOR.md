@@ -2,45 +2,65 @@
 
 ## Goal
 
-Replay historical wallet trades to estimate how a copy-trading strategy would have performed with configurable risk controls.
+Replay historical wallet actions to estimate whether manually copying a trader would have worked under realistic user settings.
+
+This version is the main proof step before ranking or alerts. It should answer:
+
+- Would copying this wallet have made money?
+- How sensitive is performance to delay?
+- What copy size is realistic?
+- What drawdown would the copier experience?
+- Which markets or categories should be excluded?
 
 ## Critical Boundary
 
-This is a historical simulator only. It must not execute trades, place orders, sign transactions, or integrate private keys.
+This is a historical simulator only. It must not execute trades, place orders, sign transactions, store private keys, or automate live trading.
 
 ## Start Gate
 
-Do not start V4 until V3 is implemented and verified.
+Do not start V4 until V3 copy-readiness indicators are implemented and verified.
 
 ## Simulator Inputs
 
-- Starting balance
-- Copy percentage
-- Max position size
-- Min position size
-- Delay
-- Only whale trades
-- Liquidity filter
+Validate all inputs with Zod:
 
-Validate all inputs with Zod.
+- Starting balance.
+- Copy percentage.
+- Fixed copy amount.
+- Max position size.
+- Min position size.
+- Max market exposure.
+- Max total open exposure.
+- Delay in seconds/minutes.
+- Entry-only, add-only, reduce-only, close-only, or all actions.
+- Include/exclude categories.
+- Include/exclude unresolved markets.
+- Liquidity filter.
+- Oversized-trade filter.
+- Stop copying after drawdown threshold.
 
 ## Backend Scope
 
 Add simulation engine in `packages/analytics`:
 
-- Historical trade replay
-- Virtual cash balance
-- Virtual positions
-- Copy sizing
-- Delay handling
-- Position size limits
-- Whale-only filter
-- Liquidity filter placeholder for V1 simulator compatibility
-- Equity curve
-- Simulated PnL
-- Simulated ROI
-- Simulated winrate
-- Simulated drawdown
+- Historical trade replay.
+- Virtual cash balance.
+- Virtual positions.
+- Copy sizing.
+- Delay handling.
+- Position size limits.
+- Market exposure limits.
+- Category filters.
+- Liquidity filter placeholder.
+- Oversized-trade filter.
+- Entry/add/reduce/close handling.
+- Simulated trade ledger.
+- Equity curve.
+- Simulated PnL.
+- Simulated ROI.
+- Simulated winrate.
+- Simulated drawdown.
+- Missed-trade count and reason.
 
 Use Decimal.js for every money calculation.
 
@@ -52,7 +72,12 @@ Use existing `CopySimulation`:
 - `settingsJson`
 - `resultJson`
 
-Add timestamps or status fields if simulations become async.
+Add fields if simulations become async:
+
+- `status`
+- `startedAt`
+- `completedAt`
+- `errorMessage`
 
 ## API Changes
 
@@ -64,37 +89,43 @@ Add endpoints:
 
 For expensive simulations, use BullMQ and return job status.
 
-## Extension Scope
+## Extension And Web Scope
 
 Add simulator UI:
 
-- Settings form
-- Run simulation button
-- Result summary
-- Equity curve
-- Simulated trade table
-- Drawdown chart
+- Settings form.
+- Run simulation button.
+- Result summary.
+- Equity curve.
+- Simulated trade table.
+- Missed-trade table.
+- Drawdown chart.
+- Category breakdown.
+- Delay sensitivity summary.
 
 ## Tests
 
 Unit tests:
 
-- Position sizing
-- Delay replay
-- Min/max position filters
-- Whale-only filter
-- Equity curve
-- Drawdown
+- Position sizing.
+- Delay replay.
+- Min/max position filters.
+- Exposure limits.
+- Category filters.
+- Oversized-trade filter.
+- Equity curve.
+- Drawdown.
+- Missed-trade reason generation.
 
 API tests:
 
-- Input validation
-- Simulation persistence
-- Result retrieval
+- Input validation.
+- Simulation persistence.
+- Result retrieval.
 
 ## Done Criteria
 
 - Simulator never performs live trading actions.
 - All calculations are backend-only.
-- Tests, typecheck, build pass.
-
+- Simulator output is explicit enough to decide whether a wallet is copyable.
+- Tests, typecheck, and build pass.

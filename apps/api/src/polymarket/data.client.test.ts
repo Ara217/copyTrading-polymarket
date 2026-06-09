@@ -1,0 +1,85 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { DataClient } from "./data.client";
+
+describe("DataClient", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("paginates wallet trades until the upstream page is not full", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [trade("1"), trade("2")]
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [trade("3"), trade("4")]
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [trade("5")]
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new DataClient({
+      get: (key: string) => {
+        if (key === "POLYMARKET_DATA_TRADE_PAGE_SIZE") {
+          return 2;
+        }
+        return undefined;
+      }
+    } as never);
+
+    const trades = await client.getWalletTrades("0xdbdd45150249e229eb4ca8aa48a30dca21faa5de");
+
+    expect(trades).toHaveLength(5);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls.map(([url]) => new URL(String(url)).searchParams.get("offset"))).toEqual([
+      "0",
+      "2",
+      "4"
+    ]);
+  });
+
+  it("stops at the configured upstream offset ceiling", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [trade("1"), trade("2")]
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new DataClient({
+      get: (key: string) => {
+        if (key === "POLYMARKET_DATA_TRADE_PAGE_SIZE") {
+          return 2;
+        }
+        if (key === "POLYMARKET_DATA_MAX_TRADE_OFFSET") {
+          return 2;
+        }
+        return undefined;
+      }
+    } as never);
+
+    await client.getWalletTrades("0xdbdd45150249e229eb4ca8aa48a30dca21faa5de");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.map(([url]) => new URL(String(url)).searchParams.get("offset"))).toEqual([
+      "0",
+      "2"
+    ]);
+  });
+});
+
+function trade(id: string) {
+  return {
+    id,
+    timestamp: 1780999365,
+    conditionId: `condition-${id}`,
+    outcome: "Yes",
+    price: 0.5,
+    size: 10,
+    side: "BUY"
+  };
+}

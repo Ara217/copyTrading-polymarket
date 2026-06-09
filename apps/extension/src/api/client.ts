@@ -1,11 +1,15 @@
 import type {
   ApiFailure,
   ApiSuccess,
+  DrawdownChartPoint,
   PnlChartPoint,
   PositionRow,
+  ProfitDistributionBucket,
   RefreshWalletResponse,
   TradeRow,
-  WalletOverview
+  WalletOverview,
+  WalletPerformance,
+  WinLossChartPoint
 } from "@polyand/types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000/api/v1";
@@ -35,5 +39,13 @@ export const api = {
   getTrades: (address: string) =>
     request<TradeRow[]>(`/wallets/${encodeURIComponent(address)}/trades?limit=100&offset=0`),
   getPositions: (address: string) => request<PositionRow[]>(`/wallets/${encodeURIComponent(address)}/positions`),
-  getPnlChart: (address: string) => request<PnlChartPoint[]>(`/wallets/${encodeURIComponent(address)}/pnl-chart`)
+  getPnlChart: (address: string) => request<PnlChartPoint[]>(`/wallets/${encodeURIComponent(address)}/pnl-chart`),
+  getPerformance: (address: string) =>
+    request<WalletPerformance>(`/wallets/${encodeURIComponent(address)}/performance`),
+  getDrawdownChart: (address: string) =>
+    request<DrawdownChartPoint[]>(`/wallets/${encodeURIComponent(address)}/drawdown-chart`),
+  getProfitDistribution: (address: string) =>
+    request<ProfitDistributionBucket[]>(`/wallets/${encodeURIComponent(address)}/profit-distribution`),
+  getWinLossChart: (address: string) =>
+    request<WinLossChartPoint[]>(`/wallets/${encodeURIComponent(address)}/win-loss-chart`)
 };
