@@ -40,6 +40,8 @@ Returns wallet profile, aggregate metrics, market count, and last activity.
 
 Includes `lastSyncedAt` so clients can distinguish a wallet that has never been synced from a wallet that synced successfully but has no upstream trades.
 
+`tradeCount` is the count of persisted normalized trade rows after sync deduplication, matching the Copy Readiness `dataValidation.tradeCount` for the same wallet snapshot.
+
 ## GET `/wallets/:address/trades`
 
 Query params:
@@ -127,5 +129,113 @@ type WinLossChartPoint = {
   date: string
   wins: number
   losses: number
+}
+```
+
+## V3 Copy Readiness Query Config
+
+The V3 endpoints accept the same optional query params:
+
+- `copyBalance`: default `1000`
+- `maxPositionSize`: default `100`
+- `minPositionSize`: default `5`
+- `oversizedThreshold`: default `250`
+- `topPercent`: default `0.05`
+- `relativeMultiplier`: default `3`
+
+All values are validated with Zod and interpreted by the backend analytics package. Clients must not duplicate scoring logic.
+
+## GET `/wallets/:address/copy-readiness`
+
+Returns the V3 copy-readiness result:
+
+```ts
+type CopyReadiness = {
+  readinessScore: number
+  dataCoverageScore: number
+  freshnessScore: number
+  activityScore: number
+  liquidityScore: number
+  positionSizeScore: number
+  activityCadence: {
+    activeDays: number
+    observedDays: number
+    tradesPerActiveDay: string
+    daysSinceLastTrade: number | null
+  }
+  categoryExposure: CategoryExposure[]
+  oversizedTrades: OversizedTrade[]
+  oversizedTradeSummary: {
+    count: number
+    roi: string
+    winrate: string
+    largestWin: string
+    largestLoss: string
+  }
+  dataValidation: {
+    tradeCount: number
+    marketCount: number
+    positionCount: number
+    oldestTradeAt: string | null
+    latestTradeAt: string | null
+    lastSyncedAt: string | null
+    syncedWindowDays: number
+    categoryCoverageRatio: string
+    unknownCategoryMarketCount: number
+    source: string
+    adapterVersion: string | null
+    coverageNote: string
+    apiWindowLimited: boolean
+  }
+  interpretation: {
+    status: "ready" | "watch" | "avoid"
+    title: string
+    message: string
+    nextActions: string[]
+  }
+  warnings: Array<{ code: string; severity: "info" | "warning" | "critical"; message: string }>
+  config: CopyReadinessConfig
+  updatedAt: string | null
+}
+```
+
+The score is decision-support evidence for whether a wallet is ready to simulate as a copy candidate. It is not a trade signal and does not execute orders.
+
+`dataValidation` explains what data the score was built from. For high-activity wallets, `apiWindowLimited: true` means the app is analyzing the current public adapter window, not proving full Polymarket lifetime performance. `interpretation` converts the score and warnings into UI guidance for whether to avoid, watch, or simulate later.
+
+## GET `/wallets/:address/category-exposure`
+
+Returns category exposure extracted from available market metadata, backend title/slug fallback classification, and trade notional:
+
+```ts
+type CategoryExposure = {
+  category: string
+  tradeCount: number
+  marketCount: number
+  positionCount: number
+  volume: string
+  volumeShare: string
+}
+```
+
+## GET `/wallets/:address/oversized-trades`
+
+Returns trades that exceed the configured absolute, percentile, or relative oversized rules:
+
+```ts
+type OversizedTrade = {
+  tradeId: string
+  marketId: string
+  marketTitle?: string | null
+  conditionId: string
+  outcome: string
+  timestamp: string
+  side: "buy" | "sell"
+  price: string
+  size: string
+  value: string
+  methods: Array<"threshold" | "topPercent" | "relative">
+  result: "open" | "win" | "loss" | "flat"
+  realizedPnl: string
 }
 ```

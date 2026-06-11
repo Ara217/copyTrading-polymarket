@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
-import { ArrowLeft, BarChart3, Moon, RefreshCw, Search, Sun } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { ArrowLeft, BarChart3, ChevronDown, Moon, RefreshCw, Search, Sun } from "lucide-react";
 import type { PositionRow, TradeRow } from "@polyand/types";
 import { useWalletStore } from "../store/walletStore";
+import { CopyReadinessPanel } from "./CopyReadinessPanel";
 import { MetricGrid } from "./MetricGrid";
 import { PnlChart } from "./PnlChart";
 import { PositionsTable } from "./PositionsTable";
@@ -13,6 +14,13 @@ import { V2Charts } from "./V2Charts";
 export function App() {
   const [selectedPositionKey, setSelectedPositionKey] = useState<string | null>(null);
   const [darkMode, setDarkMode] = useState(false);
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
+    positions: false,
+    copyReadiness: true,
+    performance: true,
+    highlights: true,
+    charts: true
+  });
   const {
     address,
     overview,
@@ -20,6 +28,7 @@ export function App() {
     positions,
     pnlChart,
     performance,
+    copyReadiness,
     drawdownChart,
     profitDistribution,
     winLossChart,
@@ -30,6 +39,17 @@ export function App() {
     refresh,
     loadWallet
   } = useWalletStore();
+
+  useEffect(() => {
+    const walletFromUrl = getWalletFromUrl();
+    if (!walletFromUrl) {
+      return;
+    }
+
+    setAddress(walletFromUrl);
+    void loadWallet(walletFromUrl).catch(() => undefined);
+  }, [loadWallet, setAddress]);
+
   const selectedPosition = useMemo(
     () => positions.find((position) => positionKey(position) === selectedPositionKey) ?? null,
     [positions, selectedPositionKey]
@@ -38,6 +58,18 @@ export function App() {
     () => (selectedPosition ? trades.filter((trade) => isTradeForPosition(trade, selectedPosition)) : trades),
     [selectedPosition, trades]
   );
+  const handleLoadWallet = async () => {
+    const loadedAddress = await loadWallet();
+    updateWalletUrl(loadedAddress);
+    setSelectedPositionKey(null);
+  };
+  const handleRefreshWallet = async () => {
+    const refreshedAddress = await refresh();
+    updateWalletUrl(refreshedAddress);
+  };
+  const toggleSection = (section: string) => {
+    setCollapsedSections((current) => ({ ...current, [section]: !current[section] }));
+  };
 
   return (
     <main className={`min-h-screen bg-panel ${darkMode ? "dark" : ""}`}>
@@ -80,7 +112,7 @@ export function App() {
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={() => void loadWallet()}
+                onClick={() => void handleLoadWallet()}
                 className="flex h-11 items-center gap-2 rounded-md bg-ink px-4 text-sm font-medium text-white"
                 title="Load wallet analytics"
               >
@@ -89,7 +121,7 @@ export function App() {
               </button>
               <button
                 type="button"
-                onClick={() => void refresh()}
+                onClick={() => void handleRefreshWallet()}
                 className="flex h-11 items-center gap-2 rounded-md border border-line bg-white px-4 text-sm font-medium text-ink"
                 title="Refresh wallet data"
               >
@@ -131,24 +163,100 @@ export function App() {
             />
           </section>
         ) : (
-          <section className="grid gap-4">
+          <CollapsibleSection
+            title="Positions"
+            description={`${positions.length} reconstructed positions. Click a row to inspect related trade history.`}
+            collapsed={collapsedSections.positions}
+            onToggle={() => toggleSection("positions")}
+          >
             <PositionsTable
               positions={positions}
               syncedAt={overview?.lastSyncedAt}
               selectedPositionKey={selectedPositionKey}
               onSelectPosition={(position) => setSelectedPositionKey(positionKey(position))}
+              showHeader={false}
+              embedded
             />
-          </section>
+          </CollapsibleSection>
         )}
 
-        <PerformancePanel performance={performance} />
-        <TradeHighlights performance={performance} />
-        <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          <PnlChart points={pnlChart} />
-          <V2Charts drawdown={drawdownChart} distribution={profitDistribution} winLoss={winLossChart} />
-        </section>
+        {!selectedPosition ? (
+          <>
+            <CollapsibleSection
+              title="Copy Readiness"
+              description={
+                copyReadiness
+                  ? `${copyReadiness.interpretation.title}. Score ${copyReadiness.readinessScore}; ${copyReadiness.warnings.length} warnings.`
+                  : "Decision-support checks for whether this wallet is worth copy-simulation later."
+              }
+              collapsed={collapsedSections.copyReadiness}
+              onToggle={() => toggleSection("copyReadiness")}
+            >
+              <CopyReadinessPanel readiness={copyReadiness} showHeader={false} embedded />
+            </CollapsibleSection>
+            <CollapsibleSection
+              title="Performance"
+              description="Realized/unrealized PnL, ROI, winrates, drawdown, and streaks."
+              collapsed={collapsedSections.performance}
+              onToggle={() => toggleSection("performance")}
+            >
+              <PerformancePanel performance={performance} />
+            </CollapsibleSection>
+            <CollapsibleSection
+              title="Trade Highlights"
+              description="Best and worst closed trades from the loaded trade history."
+              collapsed={collapsedSections.highlights}
+              onToggle={() => toggleSection("highlights")}
+            >
+              <TradeHighlights performance={performance} />
+            </CollapsibleSection>
+            <CollapsibleSection
+              title="Charts"
+              description="PnL, drawdown, profit distribution, and win/loss charts."
+              collapsed={collapsedSections.charts}
+              onToggle={() => toggleSection("charts")}
+            >
+              <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                <PnlChart points={pnlChart} />
+                <V2Charts drawdown={drawdownChart} distribution={profitDistribution} winLoss={winLossChart} />
+              </section>
+            </CollapsibleSection>
+          </>
+        ) : null}
       </div>
     </main>
+  );
+}
+
+function CollapsibleSection({
+  title,
+  description,
+  collapsed,
+  onToggle,
+  children
+}: {
+  title: string;
+  description: string;
+  collapsed: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <section className="rounded-md border border-line bg-white">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+        aria-expanded={!collapsed}
+      >
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-ink">{title}</div>
+          <div className="mt-1 text-xs text-slate-500">{description}</div>
+        </div>
+        <ChevronDown className={`shrink-0 text-slate-500 transition-transform ${collapsed ? "-rotate-90" : ""}`} size={18} />
+      </button>
+      {collapsed ? null : <div className="border-t border-line">{children}</div>}
+    </section>
   );
 }
 
@@ -158,4 +266,15 @@ function positionKey(position: Pick<PositionRow, "marketId" | "outcome">): strin
 
 function isTradeForPosition(trade: TradeRow, position: PositionRow): boolean {
   return trade.marketId === position.marketId && trade.outcome === position.outcome;
+}
+
+function getWalletFromUrl(): string | null {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("wallet");
+}
+
+function updateWalletUrl(walletAddress: string): void {
+  const url = new URL(window.location.href);
+  url.searchParams.set("wallet", walletAddress);
+  window.history.replaceState({}, "", url.toString());
 }

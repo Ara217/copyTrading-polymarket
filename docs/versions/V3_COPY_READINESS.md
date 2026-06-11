@@ -45,7 +45,7 @@ Use Decimal.js for every money calculation.
 
 ## Database Changes
 
-Prefer extending persisted wallet metrics or adding a `WalletReadiness` model if the result becomes large:
+Implemented as a `WalletReadiness` model because the result contains score components, warnings, category exposure, and oversized-trade details:
 
 - `walletAddress`
 - `readinessScore`
@@ -54,9 +54,12 @@ Prefer extending persisted wallet metrics or adding a `WalletReadiness` model if
 - `activityScore`
 - `liquidityScore`
 - `positionSizeScore`
+- `activityCadenceJson`
 - `categoryExposureJson`
+- `oversizedTradesJson`
 - `oversizedTradeSummaryJson`
 - `warningsJson`
+- `configJson`
 - `updatedAt`
 
 Document any scoring weights in `docs/DECISIONS.md`.
@@ -85,13 +88,16 @@ Validate all inputs with Zod.
 Add copy-readiness sections:
 
 - Readiness score with clear warnings.
+- Data validation summary showing synced trades, markets, positions, oldest/latest activity, source, adapter version, category coverage, and public-window limitations.
+- Plain-language interpretation: ready, watch, or avoid, with next checks for the user.
+- Collapsible web sections so positions, copy readiness, validation, score details, category exposure, warnings, oversized trades, performance, highlights, and charts can be reviewed without scrolling through every detail.
 - Data freshness and coverage indicator.
 - Activity cadence.
 - Category exposure.
 - Liquidity/position-size compatibility.
 - Oversized trade table with method badges.
 
-The UI should make weak data visible without overemphasizing any single upstream limitation. If additional historical data sources become available, adapters can expand coverage later.
+The UI should make weak data visible without overemphasizing any single upstream limitation. If additional historical data sources become available, adapters can expand coverage later. Category exposure should use upstream category metadata first and backend title/slug fallback classification second, leaving `Unknown` visible when confidence is not good enough.
 
 ## Future Enhancement
 
@@ -119,3 +125,13 @@ Integration tests:
 - UI clearly shows whether a wallet is ready for simulation.
 - Oversized-trade analytics are presented as risk context.
 - Tests, typecheck, and build pass.
+
+## Implementation Notes
+
+- Backend analytics live in `packages/analytics` and use Decimal.js for trade notional, exposure, ROI, and PnL summary values.
+- Refresh jobs persist the default readiness snapshot in `WalletReadiness`.
+- Read endpoints recompute readiness from stored trades/positions with validated query config, so UI or future simulator settings can change copy constraints without another upstream sync.
+- Web and extension keep positions as the first workflow, then show Copy Readiness as the V3 decision-support section.
+- `GET /wallets/:address/copy-readiness` returns `dataValidation` and `interpretation` in addition to raw scores. Users should validate those fields before deciding whether the wallet is worth testing in V4.
+- Category enrichment is intentionally broad and conservative. It is good enough for concentration risk, not for league-level or sport-level strategy filtering yet.
+- The web app stores the loaded wallet in `?wallet=...` and auto-loads it on page refresh so reviewers can share or revisit a specific wallet state without retyping it.

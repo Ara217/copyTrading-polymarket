@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type {
   DrawdownChartPoint,
+  CopyReadiness,
   PnlChartPoint,
   PositionRow,
   ProfitDistributionBucket,
@@ -20,6 +21,7 @@ interface WalletState {
   positions: PositionRow[];
   pnlChart: PnlChartPoint[];
   performance: WalletPerformance | null;
+  copyReadiness: CopyReadiness | null;
   drawdownChart: DrawdownChartPoint[];
   profitDistribution: ProfitDistributionBucket[];
   winLossChart: WinLossChartPoint[];
@@ -27,8 +29,8 @@ interface WalletState {
   loading: boolean;
   error: string | null;
   setAddress: (address: string) => void;
-  refresh: () => Promise<void>;
-  loadWallet: () => Promise<void>;
+  refresh: () => Promise<string>;
+  loadWallet: (addressOverride?: string) => Promise<string>;
 }
 
 export const useWalletStore = create<WalletState>((set, get) => ({
@@ -38,6 +40,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   positions: [],
   pnlChart: [],
   performance: null,
+  copyReadiness: null,
   drawdownChart: [],
   profitDistribution: [],
   winLossChart: [],
@@ -50,31 +53,46 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const refreshJob = await api.refreshWallet(address);
-      set({ refreshJob });
+      set({ address, refreshJob });
+      return address;
     } catch (error) {
       set({ error: error instanceof Error ? error.message : "Refresh failed" });
+      throw error;
     } finally {
       set({ loading: false });
     }
   },
-  loadWallet: async () => {
-    const address = normalizeIdentifier(get().address);
+  loadWallet: async (addressOverride) => {
+    const address = normalizeIdentifier(addressOverride ?? get().address);
     set({ loading: true, error: null });
     try {
-      const [overview, trades, positions, pnlChart, performance, drawdownChart, profitDistribution, winLossChart] =
+      const [
+        overview,
+        trades,
+        positions,
+        pnlChart,
+        performance,
+        copyReadiness,
+        drawdownChart,
+        profitDistribution,
+        winLossChart
+      ] =
         await Promise.all([
         api.getOverview(address),
         api.getTrades(address),
         api.getPositions(address),
         api.getPnlChart(address),
         api.getPerformance(address),
+        api.getCopyReadiness(address),
         api.getDrawdownChart(address),
         api.getProfitDistribution(address),
         api.getWinLossChart(address)
       ]);
-      set({ overview, trades, positions, pnlChart, performance, drawdownChart, profitDistribution, winLossChart });
+      set({ address, overview, trades, positions, pnlChart, performance, copyReadiness, drawdownChart, profitDistribution, winLossChart });
+      return address;
     } catch (error) {
       set({ error: error instanceof Error ? error.message : "Wallet load failed" });
+      throw error;
     } finally {
       set({ loading: false });
     }

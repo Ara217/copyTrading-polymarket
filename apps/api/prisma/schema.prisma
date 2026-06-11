@@ -21,6 +21,7 @@ model Wallet {
   trades         Trade[]
   positions      Position[]
   metrics        WalletMetrics?
+  readiness      WalletReadiness?
   simulations    CopySimulation[]
 }
 
@@ -115,6 +116,25 @@ model WalletMetrics {
   winLossChartJson          Json?
   updatedAt                 DateTime @updatedAt
   wallet                    Wallet   @relation(fields: [walletAddress], references: [address])
+}
+
+model WalletReadiness {
+  id                         String   @id @default(cuid())
+  walletAddress              String   @unique
+  readinessScore             Int
+  dataCoverageScore          Int
+  freshnessScore             Int
+  activityScore              Int
+  liquidityScore             Int
+  positionSizeScore          Int
+  activityCadenceJson        Json
+  categoryExposureJson       Json
+  oversizedTradesJson        Json
+  oversizedTradeSummaryJson  Json
+  warningsJson               Json
+  configJson                 Json
+  updatedAt                  DateTime @updatedAt
+  wallet                     Wallet   @relation(fields: [walletAddress], references: [address])
 }
 
 model CopySimulation {

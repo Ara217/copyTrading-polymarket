@@ -22,6 +22,15 @@ export const paginationQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).default(0)
 });
 
+export const copyReadinessQuerySchema = z.object({
+  copyBalance: z.coerce.number().positive().default(1000).transform(String),
+  maxPositionSize: z.coerce.number().positive().default(100).transform(String),
+  minPositionSize: z.coerce.number().nonnegative().default(5).transform(String),
+  oversizedThreshold: z.coerce.number().positive().default(250).transform(String),
+  topPercent: z.coerce.number().min(0.01).max(1).default(0.05),
+  relativeMultiplier: z.coerce.number().positive().default(3).transform(String)
+});
+
 export const rawMetadataSchema = z.object({
   source: z.enum(["gamma", "data", "clob"]),
   fetchedAt: z.string().datetime(),

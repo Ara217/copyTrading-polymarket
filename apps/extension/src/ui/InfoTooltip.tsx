@@ -34,7 +34,7 @@ interface SectionHeaderProps {
 export function SectionHeader({ title, description, aside }: SectionHeaderProps) {
   return (
     <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2">
-      <div className="flex min-w-0 items-center gap-1.5">
+      <div className="flex min-w-0 items-center gap-1.5" style={{flex: 1}}>
         <h2 className="text-sm font-semibold">{title}</h2>
         <InfoTooltip label={`${title} explanation`} description={description} />
       </div>

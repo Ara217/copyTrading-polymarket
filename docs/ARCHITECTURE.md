@@ -88,3 +88,11 @@ The platform stops at decision support. Live execution is outside the product bo
 - `20`: severe inconsistency.
 
 V1 computes confidence from data completeness and reconstruction consistency.
+
+## V3 Readiness Validation
+
+Copy readiness is shown with a backend-generated validation summary before any simulator work begins. The API reports the stored trade count, unique market count, reconstructed position count, oldest/latest synced trade, last sync time, source, adapter version, synced window length, category coverage, and whether the wallet appears to be capped by the current public Data API window.
+
+Category exposure is derived from market metadata first and conservative backend title/slug heuristics second. Unknown category exposure stays visible when the app cannot classify a market reliably.
+
+The web dashboard persists the active wallet in the `wallet` query parameter and reloads that wallet on browser refresh. Heavy analytics panels are collapsible so positions remain the primary workflow and deeper V2/V3 diagnostics are available on demand.

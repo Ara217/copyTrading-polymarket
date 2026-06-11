@@ -24,7 +24,7 @@ V2 turns raw wallet history into copy-trading-relevant performance evidence: rea
 
 Detailed spec: `docs/versions/V3_COPY_READINESS.md`
 
-V3 validates whether a wallet is reliable enough to evaluate as a copy candidate. It adds data freshness, coverage, liquidity, category, market-status, and copy-readiness indicators. Whale and oversized-position signals are included as risk context, not as the primary product goal.
+V3 validates whether a wallet is reliable enough to evaluate as a copy candidate. It adds data freshness, coverage, source/window validation, liquidity, category, market-status, and copy-readiness indicators. Whale and oversized-position signals are included as risk context, not as the primary product goal.
 
 ## Version 4: Copy Trading Simulator
 

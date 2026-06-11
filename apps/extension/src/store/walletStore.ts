@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type {
   DrawdownChartPoint,
+  CopyReadiness,
   PnlChartPoint,
   PositionRow,
   ProfitDistributionBucket,
@@ -21,6 +22,7 @@ interface WalletState {
   positions: PositionRow[];
   pnlChart: PnlChartPoint[];
   performance: WalletPerformance | null;
+  copyReadiness: CopyReadiness | null;
   drawdownChart: DrawdownChartPoint[];
   profitDistribution: ProfitDistributionBucket[];
   winLossChart: WinLossChartPoint[];
@@ -41,6 +43,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   positions: [],
   pnlChart: [],
   performance: null,
+  copyReadiness: null,
   drawdownChart: [],
   profitDistribution: [],
   winLossChart: [],
@@ -74,18 +77,29 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     const address = normalizeIdentifier(get().address);
     set({ loading: true, error: null });
     try {
-      const [overview, trades, positions, pnlChart, performance, drawdownChart, profitDistribution, winLossChart] =
+      const [
+        overview,
+        trades,
+        positions,
+        pnlChart,
+        performance,
+        copyReadiness,
+        drawdownChart,
+        profitDistribution,
+        winLossChart
+      ] =
         await Promise.all([
         api.getOverview(address),
         api.getTrades(address),
         api.getPositions(address),
         api.getPnlChart(address),
         api.getPerformance(address),
+        api.getCopyReadiness(address),
         api.getDrawdownChart(address),
         api.getProfitDistribution(address),
         api.getWinLossChart(address)
       ]);
-      set({ overview, trades, positions, pnlChart, performance, drawdownChart, profitDistribution, winLossChart });
+      set({ overview, trades, positions, pnlChart, performance, copyReadiness, drawdownChart, profitDistribution, winLossChart });
     } catch (error) {
       set({ error: error instanceof Error ? error.message : "Wallet load failed" });
     } finally {

@@ -1,7 +1,7 @@
 import { BadRequestException, Controller, Get, Param, Post, Query } from "@nestjs/common";
 import { InjectQueue } from "@nestjs/bullmq";
 import type { Queue } from "bullmq";
-import { paginationQuerySchema, success } from "@polyand/shared";
+import { copyReadinessQuerySchema, paginationQuerySchema, success } from "@polyand/shared";
 import { WalletsService } from "./wallets.service";
 import { WALLET_SYNC_QUEUE } from "./wallets.constants";
 
@@ -77,6 +77,24 @@ export class WalletsController {
   @Get(":address/win-loss-chart")
   async winLossChart(@Param("address") rawAddress: string) {
     return success(await this.walletsService.getWinLossChart(await this.resolveIdentifier(rawAddress)));
+  }
+
+  @Get(":address/copy-readiness")
+  async copyReadiness(@Param("address") rawAddress: string, @Query() query: unknown) {
+    const config = copyReadinessQuerySchema.parse(query);
+    return success(await this.walletsService.getCopyReadiness(await this.resolveIdentifier(rawAddress), config));
+  }
+
+  @Get(":address/category-exposure")
+  async categoryExposure(@Param("address") rawAddress: string, @Query() query: unknown) {
+    const config = copyReadinessQuerySchema.parse(query);
+    return success(await this.walletsService.getCategoryExposure(await this.resolveIdentifier(rawAddress), config));
+  }
+
+  @Get(":address/oversized-trades")
+  async oversizedTrades(@Param("address") rawAddress: string, @Query() query: unknown) {
+    const config = copyReadinessQuerySchema.parse(query);
+    return success(await this.walletsService.getOversizedTrades(await this.resolveIdentifier(rawAddress), config));
   }
 
   private async resolveIdentifier(identifier: string): Promise<string> {

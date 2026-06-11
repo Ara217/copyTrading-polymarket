@@ -5,12 +5,19 @@ import {
   buildPnlChart,
   buildTradeHistoryAnalytics,
   calculateAdvancedPerformance,
+  calculateCopyReadiness,
   calculateWalletMetrics,
   reconstructPositions,
-  type AnalyticsTrade
+  type AnalyticsTrade,
+  type CopyReadinessConfig
 } from "@polyand/analytics";
 import {
+  type CategoryExposure,
+  type CopyReadiness,
+  type CopyReadinessDataValidation,
+  type CopyReadinessInterpretation,
   type DrawdownChartPoint,
+  type OversizedTrade,
   type PnlChartPoint,
   type PositionRow,
   type ProfitDistributionBucket,
@@ -25,6 +32,7 @@ import { PolymarketService } from "../polymarket/polymarket.service";
 import { NormalizedMarket, NormalizedTrade } from "../polymarket/types";
 import { PrismaService } from "../prisma/prisma.service";
 import { parseWalletAddress, polymarketProfileSlugSchema, walletAddressFromProfileSlug } from "@polyand/shared";
+import { inferMarketCategory } from "./market-category";
 
 @Injectable()
 export class WalletsService {
@@ -53,7 +61,7 @@ export class WalletsService {
 
   async refreshWallet(walletAddress: string): Promise<void> {
     await this.recordSyncJob(`wallet:${walletAddress}:latest`, walletAddress, "active");
-    const trades = await this.polymarket.getWalletTrades(walletAddress);
+    const trades = this.dedupeTradesForPersistence(await this.polymarket.getWalletTrades(walletAddress));
     const markets = this.enrichMarketsFromTrades(
       await this.polymarket.getMarkets(trades.map((trade) => trade.conditionId)),
       trades
@@ -67,6 +75,14 @@ export class WalletsService {
       positions,
       markets.map((market) => ({ marketId: market.conditionId, resolved: market.resolved }))
     );
+    const readiness = calculateCopyReadiness({
+      trades: analyticsTrades,
+      positions,
+      markets: markets.map((market) => ({
+        marketId: market.conditionId,
+        category: market.category
+      }))
+    });
 
     await this.prisma.$transaction(async (tx) => {
       await tx.wallet.upsert({
@@ -182,6 +198,39 @@ export class WalletsService {
           winLossChartJson: performance.winLossChart as unknown as Prisma.InputJsonValue
         }
       });
+
+      await tx.walletReadiness.upsert({
+        where: { walletAddress },
+        create: {
+          walletAddress,
+          readinessScore: readiness.readinessScore,
+          dataCoverageScore: readiness.dataCoverageScore,
+          freshnessScore: readiness.freshnessScore,
+          activityScore: readiness.activityScore,
+          liquidityScore: readiness.liquidityScore,
+          positionSizeScore: readiness.positionSizeScore,
+          activityCadenceJson: readiness.activityCadence as unknown as Prisma.InputJsonValue,
+          categoryExposureJson: readiness.categoryExposure as unknown as Prisma.InputJsonValue,
+          oversizedTradesJson: readiness.oversizedTrades as unknown as Prisma.InputJsonValue,
+          oversizedTradeSummaryJson: readiness.oversizedTradeSummary as unknown as Prisma.InputJsonValue,
+          warningsJson: readiness.warnings as unknown as Prisma.InputJsonValue,
+          configJson: readiness.config as unknown as Prisma.InputJsonValue
+        },
+        update: {
+          readinessScore: readiness.readinessScore,
+          dataCoverageScore: readiness.dataCoverageScore,
+          freshnessScore: readiness.freshnessScore,
+          activityScore: readiness.activityScore,
+          liquidityScore: readiness.liquidityScore,
+          positionSizeScore: readiness.positionSizeScore,
+          activityCadenceJson: readiness.activityCadence as unknown as Prisma.InputJsonValue,
+          categoryExposureJson: readiness.categoryExposure as unknown as Prisma.InputJsonValue,
+          oversizedTradesJson: readiness.oversizedTrades as unknown as Prisma.InputJsonValue,
+          oversizedTradeSummaryJson: readiness.oversizedTradeSummary as unknown as Prisma.InputJsonValue,
+          warningsJson: readiness.warnings as unknown as Prisma.InputJsonValue,
+          configJson: readiness.config as unknown as Prisma.InputJsonValue
+        }
+      });
     });
 
     await this.cache.del(this.overviewCacheKey(walletAddress));
@@ -288,21 +337,34 @@ export class WalletsService {
 
     const trades = await this.prisma.trade.findMany({
       where: { walletAddress },
-      select: { marketId: true, outcome: true, timestamp: true },
+      select: { marketId: true, outcome: true, price: true, size: true, side: true, timestamp: true },
       orderBy: { timestamp: "desc" }
     });
     const latestTradeByPosition = new Map<string, Date>();
+    const totalBetByPosition = new Map<string, Prisma.Decimal>();
+    const totalReturnedByPosition = new Map<string, Prisma.Decimal>();
 
     for (const trade of trades) {
       const key = this.positionKey(trade.marketId, trade.outcome);
       if (!latestTradeByPosition.has(key)) {
         latestTradeByPosition.set(key, trade.timestamp);
       }
+
+      const value = trade.price.mul(trade.size.abs());
+      if (this.normalizedTradeSide(trade.side) === "sell") {
+        totalReturnedByPosition.set(key, (totalReturnedByPosition.get(key) ?? new Prisma.Decimal(0)).plus(value));
+      } else {
+        totalBetByPosition.set(key, (totalBetByPosition.get(key) ?? new Prisma.Decimal(0)).plus(value));
+      }
     }
 
     return positions
       .map((position) => {
         const lastTradeAt = latestTradeByPosition.get(this.positionKey(position.marketId, position.outcome)) ?? null;
+        const currentValue = position.currentShares
+          .abs()
+          .mul(position.averageEntryPrice)
+          .plus(position.unrealizedPnl);
 
         return {
           id: position.id,
@@ -313,6 +375,9 @@ export class WalletsService {
           currentShares: position.currentShares.toString(),
           averageEntryPrice: position.averageEntryPrice.toString(),
           averageExitPrice: position.averageExitPrice.toString(),
+          totalBet: (totalBetByPosition.get(this.positionKey(position.marketId, position.outcome)) ?? new Prisma.Decimal(0)).toString(),
+          totalReturned: (totalReturnedByPosition.get(this.positionKey(position.marketId, position.outcome)) ?? new Prisma.Decimal(0)).toString(),
+          currentValue: currentValue.toString(),
           realizedPnl: position.realizedPnl.toString(),
           unrealizedPnl: position.unrealizedPnl.toString(),
           totalPnl: position.totalPnl.toString(),
@@ -396,6 +461,80 @@ export class WalletsService {
     return this.toWinLossChart(metrics.winLossChartJson);
   }
 
+  async getCopyReadiness(walletAddress: string, config: CopyReadinessConfig): Promise<CopyReadiness> {
+    const [wallet, trades, positions, persistedReadiness] = await Promise.all([
+      this.prisma.wallet.findUnique({ where: { address: walletAddress } }),
+      this.prisma.trade.findMany({
+        where: { walletAddress },
+        include: { market: true },
+        orderBy: { timestamp: "asc" }
+      }),
+      this.prisma.position.findMany({ where: { walletAddress } }),
+      this.prisma.walletReadiness.findUnique({ where: { walletAddress } })
+    ]);
+
+    if (trades.length === 0 && positions.length === 0) {
+      throw new NotFoundException("Wallet readiness has not been synced");
+    }
+
+    const marketTitleById = new Map(trades.map((trade) => [trade.conditionId, trade.market.title]));
+    const enrichedMarkets = trades.map((trade) => ({
+      marketId: trade.conditionId,
+      category: inferMarketCategory(trade.market.category, trade.market.title, trade.market.slug, trade.market.rawJson)
+    }));
+    const readiness = calculateCopyReadiness({
+      trades: trades.map((trade) => ({
+        id: trade.id,
+        marketId: trade.marketId,
+        conditionId: trade.conditionId,
+        outcome: trade.outcome,
+        price: trade.price.toString(),
+        size: trade.size.toString(),
+        timestamp: trade.timestamp.toISOString(),
+        side: trade.side
+      })),
+      positions: positions.map((position) => ({
+        marketId: position.marketId,
+        conditionId: position.marketId,
+        outcome: position.outcome,
+        currentShares: position.currentShares.toString(),
+        averageEntryPrice: position.averageEntryPrice.toString(),
+        averageExitPrice: position.averageExitPrice.toString(),
+        realizedPnl: position.realizedPnl.toString(),
+        unrealizedPnl: position.unrealizedPnl.toString(),
+        totalPnl: position.totalPnl.toString(),
+        confidenceScore: position.confidenceScore
+      })),
+      markets: enrichedMarkets,
+      config
+    });
+    const dataValidation = this.buildDataValidation({
+      trades,
+      positions,
+      wallet,
+      markets: enrichedMarkets
+    });
+
+    return {
+      ...readiness,
+      oversizedTrades: readiness.oversizedTrades.map((trade) => ({
+        ...trade,
+        marketTitle: marketTitleById.get(trade.conditionId) ?? null
+      })),
+      dataValidation,
+      interpretation: this.buildReadinessInterpretation(readiness, dataValidation),
+      updatedAt: persistedReadiness?.updatedAt.toISOString() ?? null
+    };
+  }
+
+  async getCategoryExposure(walletAddress: string, config: CopyReadinessConfig): Promise<CategoryExposure[]> {
+    return (await this.getCopyReadiness(walletAddress, config)).categoryExposure;
+  }
+
+  async getOversizedTrades(walletAddress: string, config: CopyReadinessConfig): Promise<OversizedTrade[]> {
+    return (await this.getCopyReadiness(walletAddress, config)).oversizedTrades;
+  }
+
   private async upsertMarket(tx: Prisma.TransactionClient, market: NormalizedMarket): Promise<void> {
     await tx.market.upsert({
       where: { conditionId: market.conditionId },
@@ -448,6 +587,12 @@ export class WalletsService {
         ...market,
         title: market.title ?? trade.marketTitle,
         slug: market.slug ?? trade.marketSlug,
+        category: inferMarketCategory(
+          market.category,
+          market.title ?? trade.marketTitle,
+          market.slug ?? trade.marketSlug,
+          market.rawJson
+        ),
         rawJson:
           market.title || market.slug
             ? market.rawJson
@@ -472,8 +617,128 @@ export class WalletsService {
     }));
   }
 
+  private dedupeTradesForPersistence(trades: NormalizedTrade[]): NormalizedTrade[] {
+    const seen = new Set<string>();
+
+    return trades.filter((trade) => {
+      if (!trade.transactionHash) {
+        return true;
+      }
+
+      const key = [
+        trade.transactionHash,
+        trade.conditionId,
+        trade.outcome,
+        new Date(trade.timestamp).toISOString()
+      ].join("\u0000");
+
+      if (seen.has(key)) {
+        return false;
+      }
+
+      seen.add(key);
+      return true;
+    });
+  }
+
   private positionKey(marketId: string, outcome: string): string {
     return `${marketId}:${outcome}`;
+  }
+
+  private normalizedTradeSide(side: string | null): "buy" | "sell" {
+    const normalized = side?.toLowerCase();
+    return normalized === "sell" || normalized === "sold" || normalized === "ask" ? "sell" : "buy";
+  }
+
+  private buildDataValidation(input: {
+    trades: Array<{
+      timestamp: Date;
+      conditionId: string;
+      adapterVersion: string | null;
+      source: string | null;
+    }>;
+    positions: unknown[];
+    wallet: { lastSyncedAt: Date | null; adapterVersion: string | null; source: string | null } | null;
+    markets: Array<{ marketId: string; category: string | null }>;
+  }): CopyReadinessDataValidation {
+    const marketIds = new Set(input.trades.map((trade) => trade.conditionId));
+    const oldestTrade = input.trades[0] ?? null;
+    const latestTrade = input.trades.at(-1) ?? null;
+    const knownCategoryMarkets = new Set(
+      input.markets
+        .filter((market) => market.category && market.category !== "Unknown")
+        .map((market) => market.marketId)
+    );
+    const syncedWindowDays =
+      oldestTrade && latestTrade
+        ? Math.max(1, Math.ceil((latestTrade.timestamp.getTime() - oldestTrade.timestamp.getTime()) / 86_400_000) + 1)
+        : 0;
+    const categoryCoverageRatio =
+      marketIds.size === 0 ? "0" : new Prisma.Decimal(knownCategoryMarkets.size).div(marketIds.size).toDecimalPlaces(8).toString();
+    const apiWindowLimited = input.trades.length >= 3900;
+
+    return {
+      tradeCount: input.trades.length,
+      marketCount: marketIds.size,
+      positionCount: input.positions.length,
+      oldestTradeAt: oldestTrade?.timestamp.toISOString() ?? null,
+      latestTradeAt: latestTrade?.timestamp.toISOString() ?? null,
+      lastSyncedAt: input.wallet?.lastSyncedAt?.toISOString() ?? null,
+      syncedWindowDays,
+      categoryCoverageRatio,
+      unknownCategoryMarketCount: Math.max(0, marketIds.size - knownCategoryMarkets.size),
+      source: input.wallet?.source ?? latestTrade?.source ?? "data",
+      adapterVersion: input.wallet?.adapterVersion ?? latestTrade?.adapterVersion ?? null,
+      coverageNote: apiWindowLimited
+        ? "This wallet is at the current public Data API sync window. Treat lifetime conclusions as incomplete until deeper history sources are added."
+        : "This summary reflects the stored public adapter history for the wallet.",
+      apiWindowLimited
+    };
+  }
+
+  private buildReadinessInterpretation(
+    readiness: Omit<CopyReadiness, "updatedAt" | "dataValidation" | "interpretation">,
+    dataValidation: CopyReadinessDataValidation
+  ): CopyReadinessInterpretation {
+    const criticalWarnings = readiness.warnings.filter((warning) => warning.severity === "critical");
+    const hasWeakCategories = Number(dataValidation.categoryCoverageRatio) < 0.5;
+    const status: CopyReadinessInterpretation["status"] =
+      criticalWarnings.length > 0 || readiness.readinessScore < 50
+        ? "avoid"
+        : readiness.readinessScore >= 75 && !dataValidation.apiWindowLimited
+          ? "ready"
+          : "watch";
+
+    const nextActions = [
+      dataValidation.apiWindowLimited ? "Use this as a public-window sample, not full lifetime proof." : "Review latest trades before simulation.",
+      hasWeakCategories ? "Treat category exposure as partial until more market metadata is available." : "Use category exposure to check concentration risk.",
+      readiness.oversizedTradeSummary.count > 0 ? "Cap or skip oversized trades in the future simulator." : "Default copy size rules fit the observed trades."
+    ];
+
+    if (status === "avoid") {
+      return {
+        status,
+        title: "Do not copy yet",
+        message: "The available evidence has critical readiness issues or a weak score. Keep this wallet on a watchlist until the risks improve.",
+        nextActions
+      };
+    }
+
+    if (status === "ready") {
+      return {
+        status,
+        title: "Ready for simulation",
+        message: "The wallet has fresh, broad, and size-compatible evidence. It is ready to evaluate in the next simulator version.",
+        nextActions
+      };
+    }
+
+    return {
+      status,
+      title: "Watch before simulation",
+      message: "The wallet has useful evidence, but coverage, category quality, or oversized-trade risk means it should be validated before copy simulation.",
+      nextActions
+    };
   }
 
   private async getWalletMetrics(walletAddress: string) {

@@ -45,6 +45,7 @@ These notes are the source of truth for future refreshes and continuation runs.
 - V1 raw metadata includes `source`, `fetchedAt`, and `adapterVersion`.
 - A richer raw archive table is deferred to V2 or V3.
 - V1 includes a minimal market lookup cache because trade rows need market title, slug, condition id, outcome info, and resolved status.
+- Wallet metrics, positions, and readiness validation are computed from the same deduped trade set that is persisted. Duplicate upstream rows with the same transaction hash, condition id, outcome, and timestamp are removed before analytics so overview counts match readiness counts.
 - Data API trade sync paginates through the configured public API window. Future enhancement: investigate additional history sources or archival strategies for deeper lifetime analysis when upstream public pagination is incomplete.
 
 ## Money Math
@@ -52,3 +53,14 @@ These notes are the source of truth for future refreshes and continuation runs.
 - Never use JavaScript floating point for money calculations.
 - All money, price, size, PnL, ROI, and drawdown calculations use `Decimal.js`.
 - API DTOs serialize Decimal values as strings.
+
+## V3 Copy Readiness Scoring
+
+- Copy readiness is backend-owned decision-support evidence, not a trading signal.
+- Readiness score weights are: data coverage `25%`, freshness `20%`, activity cadence `20%`, liquidity fit `20%`, and position-size fit `15%`.
+- Data coverage combines stored trade count and unique market count from the configured public adapter window.
+- Oversized trades are classified by three methods: absolute threshold, top-percentile notional, and relative multiplier versus average trade notional.
+- Liquidity and size-fit scores use available trade notional and reconstructed position exposure as placeholders until deeper order-book/liquidity simulation is implemented.
+- The copy-readiness API also returns a data-validation summary so UI users can compare synced trade count, market count, position count, oldest/latest synced activity, last sync time, source, adapter version, and public-window limitations before trusting the score.
+- Category exposure uses upstream market metadata first. When Gamma/Data metadata is missing, the backend applies conservative title/slug heuristics for broad categories such as Sports, Crypto, Politics, Esports, Finance, and Culture. Unknown remains visible when neither metadata nor heuristics are reliable.
+- Wallets at the current public Data API sync window are not treated as full lifetime proof. The UI should show this as a validation note and continue to treat deeper history as a future enhancement.

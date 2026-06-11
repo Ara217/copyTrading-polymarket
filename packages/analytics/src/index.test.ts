@@ -3,8 +3,10 @@ import {
   buildTradeHistoryAnalytics,
   buildPnlChart,
   calculateAdvancedPerformance,
+  calculateCopyReadiness,
   calculateMaxDrawdown,
   calculateWalletMetrics,
+  classifyOversizedTrades,
   reconstructPositions,
   type AnalyticsTrade
 } from "./index";
@@ -245,5 +247,111 @@ describe("advanced performance analytics", () => {
       { date: "2025-01-02", wins: 1, losses: 0 },
       { date: "2025-01-04", wins: 0, losses: 1 }
     ]);
+  });
+});
+
+describe("copy readiness analytics", () => {
+  const readinessTrades: AnalyticsTrade[] = [
+    {
+      id: "1",
+      marketId: "condition-politics",
+      conditionId: "condition-politics",
+      outcome: "Yes",
+      price: "0.50",
+      size: "100",
+      timestamp: "2026-01-01T00:00:00.000Z",
+      side: "buy"
+    },
+    {
+      id: "2",
+      marketId: "condition-politics",
+      conditionId: "condition-politics",
+      outcome: "Yes",
+      price: "0.70",
+      size: "100",
+      timestamp: "2026-01-02T00:00:00.000Z",
+      side: "sell"
+    },
+    {
+      id: "3",
+      marketId: "condition-sports",
+      conditionId: "condition-sports",
+      outcome: "No",
+      price: "0.90",
+      size: "300",
+      timestamp: "2026-01-08T00:00:00.000Z",
+      side: "buy"
+    },
+    {
+      id: "4",
+      marketId: "condition-sports",
+      conditionId: "condition-sports",
+      outcome: "No",
+      price: "0.40",
+      size: "300",
+      timestamp: "2026-01-09T00:00:00.000Z",
+      side: "sell"
+    }
+  ];
+
+  it("groups category exposure and adds readiness warnings from copy constraints", () => {
+    const positions = reconstructPositions(readinessTrades);
+    const readiness = calculateCopyReadiness({
+      trades: readinessTrades,
+      positions,
+      markets: [
+        { marketId: "condition-politics", category: "Politics" },
+        { marketId: "condition-sports", category: "Sports" }
+      ],
+      now: "2026-01-10T00:00:00.000Z",
+      config: {
+        copyBalance: "500",
+        maxPositionSize: "100",
+        minPositionSize: "10",
+        oversizedThreshold: "100",
+        topPercent: 0.5,
+        relativeMultiplier: "1.5"
+      }
+    });
+
+    expect(readiness.freshnessScore).toBe(100);
+    expect(readiness.categoryExposure).toEqual([
+      {
+        category: "Sports",
+        tradeCount: 2,
+        marketCount: 1,
+        positionCount: 1,
+        volume: "390",
+        volumeShare: "0.76470588"
+      },
+      {
+        category: "Politics",
+        tradeCount: 2,
+        marketCount: 1,
+        positionCount: 1,
+        volume: "120",
+        volumeShare: "0.23529412"
+      }
+    ]);
+    expect(readiness.warnings.map((warning) => warning.code)).toContain("OVERSIZED_TRADES");
+    expect(readiness.warnings.map((warning) => warning.code)).toContain("NEGATIVE_OVERSIZED_ROI");
+  });
+
+  it("classifies oversized trades by absolute, relative, and percentile methods", () => {
+    const oversized = classifyOversizedTrades(readinessTrades, {
+      copyBalance: "500",
+      maxPositionSize: "100",
+      minPositionSize: "10",
+      oversizedThreshold: "100",
+      topPercent: 0.25,
+      relativeMultiplier: "1.5"
+    });
+
+    expect(oversized).toHaveLength(2);
+    expect(oversized[0]?.tradeId).toBe("3");
+    expect(oversized[0]?.value).toBe("270");
+    expect(oversized[0]?.methods).toEqual(["threshold", "topPercent", "relative"]);
+    expect(oversized[0]?.result).toBe("open");
+    expect(oversized[1]?.result).toBe("loss");
   });
 });

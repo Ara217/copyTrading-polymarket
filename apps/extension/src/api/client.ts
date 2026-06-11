@@ -1,6 +1,7 @@
 import type {
   ApiFailure,
   ApiSuccess,
+  CopyReadiness,
   DrawdownChartPoint,
   PnlChartPoint,
   PositionRow,
@@ -47,5 +48,7 @@ export const api = {
   getProfitDistribution: (address: string) =>
     request<ProfitDistributionBucket[]>(`/wallets/${encodeURIComponent(address)}/profit-distribution`),
   getWinLossChart: (address: string) =>
-    request<WinLossChartPoint[]>(`/wallets/${encodeURIComponent(address)}/win-loss-chart`)
+    request<WinLossChartPoint[]>(`/wallets/${encodeURIComponent(address)}/win-loss-chart`),
+  getCopyReadiness: (address: string) =>
+    request<CopyReadiness>(`/wallets/${encodeURIComponent(address)}/copy-readiness`)
 };

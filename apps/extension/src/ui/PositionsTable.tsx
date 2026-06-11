@@ -1,3 +1,4 @@
+import { ExternalLink } from "lucide-react";
 import type { PositionRow } from "@polyand/types";
 import { formatAmount, formatDate } from "../utils/format";
 import { SectionHeader } from "./InfoTooltip";
@@ -14,10 +15,10 @@ export function PositionsTable({ positions, syncedAt, selectedPositionKey, onSel
     <aside className="min-w-0 rounded-md border border-line bg-white">
       <SectionHeader
         title="Positions"
-        description="Reconstructed exposure by market and outcome. Rows are ordered by latest trade activity, newest first."
+        description="Reconstructed exposure by market and outcome. Bet is buy notional, Current is marked value of open shares, and Sold is actual sell proceeds."
         aside={`${positions.length} loaded`}
       />
-      <div className="max-h-[420px] overflow-auto">
+      <div className="max-h-[676px] overflow-auto">
         <table className="min-w-[980px] w-full text-left text-xs">
           <thead className="sticky top-0 bg-panel text-slate-500">
             <tr>
@@ -26,11 +27,15 @@ export function PositionsTable({ positions, syncedAt, selectedPositionKey, onSel
               <th className="w-[80px] px-2 py-2 font-medium">Status</th>
               <th className="w-[92px] px-2 py-2 font-medium">Last</th>
               <th className="px-2 py-2 text-right font-medium">Shares</th>
+              <th className="px-2 py-2 text-right font-medium">Bet</th>
+              <th className="px-2 py-2 text-right font-medium">Current</th>
+              <th className="px-2 py-2 text-right font-medium">Sold</th>
               <th className="px-2 py-2 text-right font-medium">Entry</th>
               <th className="px-2 py-2 text-right font-medium">Exit</th>
               <th className="px-2 py-2 text-right font-medium">Realized</th>
               <th className="px-2 py-2 text-right font-medium">Unrealized</th>
               <th className="px-2 py-2 text-right font-medium">PnL</th>
+              <th className="w-[52px] px-2 py-2 text-right font-medium">Link</th>
             </tr>
           </thead>
           <tbody>
@@ -65,6 +70,9 @@ export function PositionsTable({ positions, syncedAt, selectedPositionKey, onSel
                 </td>
                 <td className="px-2 py-2 tabular-nums text-slate-500">{formatDate(position.lastTradeAt)}</td>
                 <td className="px-2 py-2 text-right tabular-nums">{formatAmount(position.currentShares, "shares")}</td>
+                <td className="px-2 py-2 text-right tabular-nums">{formatAmount(position.totalBet, "usd")}</td>
+                <td className="px-2 py-2 text-right tabular-nums">{formatAmount(position.currentValue, "usd")}</td>
+                <td className="px-2 py-2 text-right tabular-nums">{formatAmount(position.totalReturned, "usd")}</td>
                 <td className="px-2 py-2 text-right tabular-nums">{formatAmount(position.averageEntryPrice, "price")}</td>
                 <td className="px-2 py-2 text-right tabular-nums">{formatAmount(position.averageExitPrice, "price")}</td>
                 <td className="px-2 py-2 text-right tabular-nums">{formatAmount(position.realizedPnl, "usd")}</td>
@@ -75,6 +83,9 @@ export function PositionsTable({ positions, syncedAt, selectedPositionKey, onSel
                   }`}
                 >
                   {formatAmount(position.totalPnl, "usd")}
+                </td>
+                <td className="px-2 py-2 text-right">
+                  <PolymarketLink position={position} />
                 </td>
               </tr>
             );
@@ -88,5 +99,27 @@ export function PositionsTable({ positions, syncedAt, selectedPositionKey, onSel
         ) : null}
       </div>
     </aside>
+  );
+}
+
+function PolymarketLink({ position }: { position: PositionRow }) {
+  const href = position.marketSlug ? `https://polymarket.com/market/${position.marketSlug}` : null;
+
+  if (!href) {
+    return <span className="text-xs text-slate-400">-</span>;
+  }
+
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      onClick={(event) => event.stopPropagation()}
+      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-line bg-white text-ink hover:bg-panel"
+      title="Open this market on Polymarket"
+      aria-label="Open this market on Polymarket"
+    >
+      <ExternalLink size={13} />
+    </a>
   );
 }

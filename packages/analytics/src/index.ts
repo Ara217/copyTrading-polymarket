@@ -114,6 +114,92 @@ export interface AdvancedPerformanceResult {
   winLossChart: WinLossPoint[];
 }
 
+export interface AnalyticsMarket {
+  marketId: string;
+  category?: string | null;
+}
+
+export interface CopyReadinessConfig {
+  copyBalance: string;
+  maxPositionSize: string;
+  minPositionSize: string;
+  oversizedThreshold: string;
+  topPercent: number;
+  relativeMultiplier: string;
+}
+
+export type ReadinessWarningSeverity = "info" | "warning" | "critical";
+
+export interface ReadinessWarning {
+  code: string;
+  severity: ReadinessWarningSeverity;
+  message: string;
+}
+
+export interface ActivityCadence {
+  activeDays: number;
+  observedDays: number;
+  tradesPerActiveDay: string;
+  daysSinceLastTrade: number | null;
+}
+
+export interface CategoryExposure {
+  category: string;
+  tradeCount: number;
+  marketCount: number;
+  positionCount: number;
+  volume: string;
+  volumeShare: string;
+}
+
+export type OversizedTradeMethod = "threshold" | "topPercent" | "relative";
+
+export interface OversizedTrade {
+  tradeId: string;
+  marketId: string;
+  conditionId: string;
+  outcome: string;
+  timestamp: string;
+  side: TradeSide;
+  price: string;
+  size: string;
+  value: string;
+  methods: OversizedTradeMethod[];
+  result: TradeResult;
+  realizedPnl: string;
+}
+
+export interface OversizedTradeSummary {
+  count: number;
+  roi: string;
+  winrate: string;
+  largestWin: string;
+  largestLoss: string;
+}
+
+export interface CopyReadinessInput {
+  trades: AnalyticsTrade[];
+  positions: ReconstructedPosition[];
+  markets?: AnalyticsMarket[];
+  now?: string;
+  config?: Partial<CopyReadinessConfig>;
+}
+
+export interface CopyReadinessResult {
+  readinessScore: number;
+  dataCoverageScore: number;
+  freshnessScore: number;
+  activityScore: number;
+  liquidityScore: number;
+  positionSizeScore: number;
+  activityCadence: ActivityCadence;
+  categoryExposure: CategoryExposure[];
+  oversizedTrades: OversizedTrade[];
+  oversizedTradeSummary: OversizedTradeSummary;
+  warnings: ReadinessWarning[];
+  config: CopyReadinessConfig;
+}
+
 interface PositionAccumulator {
   marketId: string;
   conditionId: string;
@@ -137,6 +223,10 @@ function decimal(value: string | number | Decimal): Decimal {
 
 function money(value: Decimal): string {
   return value.toDecimalPlaces(8).toString();
+}
+
+function score(value: Decimal): number {
+  return Math.max(0, Math.min(100, Math.round(value.toNumber())));
 }
 
 function normalizedSide(trade: AnalyticsTrade): TradeSide {
@@ -491,6 +581,355 @@ export function calculateAdvancedPerformance(
     profitDistribution: buildProfitDistribution(positions),
     winLossChart: buildWinLossChart(closedTrades)
   };
+}
+
+const defaultCopyReadinessConfig: CopyReadinessConfig = {
+  copyBalance: "1000",
+  maxPositionSize: "100",
+  minPositionSize: "5",
+  oversizedThreshold: "250",
+  topPercent: 0.05,
+  relativeMultiplier: "3"
+};
+
+export function calculateCopyReadiness(input: CopyReadinessInput): CopyReadinessResult {
+  const config = normalizeCopyReadinessConfig(input.config);
+  const trades = [...input.trades].sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  );
+  const markets = input.markets ?? [];
+  const now = input.now ? new Date(input.now) : new Date();
+  const categoryExposure = buildCategoryExposure(trades, input.positions, markets);
+  const oversizedTrades = classifyOversizedTrades(trades, config);
+  const oversizedTradeSummary = summarizeOversizedTrades(oversizedTrades);
+  const activityCadence = calculateActivityCadence(trades, now);
+  const marketCount = new Set(trades.map((trade) => trade.conditionId || trade.marketId)).size;
+
+  const dataCoverageScore = score(
+    Decimal.min(60, new Decimal(trades.length).div(100).mul(60)).plus(
+      Decimal.min(40, new Decimal(marketCount).div(20).mul(40))
+    )
+  );
+  const freshnessScore = calculateFreshnessScore(activityCadence.daysSinceLastTrade);
+  const activityScore = calculateActivityScore(activityCadence);
+  const liquidityScore = calculateLiquidityScore(trades, config);
+  const positionSizeScore = calculatePositionSizeScore(input.positions, config);
+  const readinessScore = score(
+    new Decimal(dataCoverageScore)
+      .mul("0.25")
+      .plus(new Decimal(freshnessScore).mul("0.20"))
+      .plus(new Decimal(activityScore).mul("0.20"))
+      .plus(new Decimal(liquidityScore).mul("0.20"))
+      .plus(new Decimal(positionSizeScore).mul("0.15"))
+  );
+
+  return {
+    readinessScore,
+    dataCoverageScore,
+    freshnessScore,
+    activityScore,
+    liquidityScore,
+    positionSizeScore,
+    activityCadence,
+    categoryExposure,
+    oversizedTrades,
+    oversizedTradeSummary,
+    warnings: buildReadinessWarnings({
+      tradeCount: trades.length,
+      dataCoverageScore,
+      freshnessScore,
+      activityScore,
+      liquidityScore,
+      positionSizeScore,
+      oversizedTrades,
+      oversizedTradeSummary
+    }),
+    config
+  };
+}
+
+export function classifyOversizedTrades(
+  trades: AnalyticsTrade[],
+  configInput: Partial<CopyReadinessConfig> = {}
+): OversizedTrade[] {
+  if (trades.length === 0) {
+    return [];
+  }
+
+  const config = normalizeCopyReadinessConfig(configInput);
+  const tradeValues = trades.map((trade) => tradeValue(trade));
+  const averageValue = tradeValues.reduce((sum, value) => sum.plus(value), new Decimal(0)).div(trades.length);
+  const sortedValues = [...tradeValues].sort((a, b) => b.cmp(a));
+  const percentileIndex = Math.max(0, Math.ceil(trades.length * config.topPercent) - 1);
+  const percentileCutoff = sortedValues[percentileIndex] ?? new Decimal(0);
+  const threshold = decimal(config.oversizedThreshold);
+  const relativeCutoff = averageValue.mul(config.relativeMultiplier);
+  const historyById = new Map(buildTradeHistoryAnalytics(trades).map((trade) => [trade.tradeId, trade]));
+
+  return trades
+    .map((trade) => {
+      const value = tradeValue(trade);
+      const methods: OversizedTradeMethod[] = [];
+      if (value.gte(threshold)) {
+        methods.push("threshold");
+      }
+      if (value.gte(percentileCutoff) && config.topPercent > 0) {
+        methods.push("topPercent");
+      }
+      if (value.gte(relativeCutoff) && relativeCutoff.gt(0)) {
+        methods.push("relative");
+      }
+      const history = historyById.get(trade.id);
+
+      return {
+        trade,
+        value,
+        methods,
+        history
+      };
+    })
+    .filter((trade) => trade.methods.length > 0)
+    .sort((a, b) => b.value.cmp(a.value))
+    .map(({ trade, value, methods, history }) => ({
+      tradeId: trade.id,
+      marketId: trade.marketId,
+      conditionId: trade.conditionId,
+      outcome: trade.outcome,
+      timestamp: trade.timestamp,
+      side: normalizedSide(trade),
+      price: money(decimal(trade.price)),
+      size: money(decimal(trade.size).abs()),
+      value: money(value),
+      methods,
+      result: history?.result ?? "open",
+      realizedPnl: history?.realizedPnl ?? "0"
+    }));
+}
+
+function normalizeCopyReadinessConfig(config: Partial<CopyReadinessConfig> = {}): CopyReadinessConfig {
+  return {
+    copyBalance: config.copyBalance ?? defaultCopyReadinessConfig.copyBalance,
+    maxPositionSize: config.maxPositionSize ?? defaultCopyReadinessConfig.maxPositionSize,
+    minPositionSize: config.minPositionSize ?? defaultCopyReadinessConfig.minPositionSize,
+    oversizedThreshold: config.oversizedThreshold ?? defaultCopyReadinessConfig.oversizedThreshold,
+    topPercent: config.topPercent ?? defaultCopyReadinessConfig.topPercent,
+    relativeMultiplier: config.relativeMultiplier ?? defaultCopyReadinessConfig.relativeMultiplier
+  };
+}
+
+function tradeValue(trade: AnalyticsTrade): Decimal {
+  return decimal(trade.price).mul(decimal(trade.size).abs());
+}
+
+function buildCategoryExposure(
+  trades: AnalyticsTrade[],
+  positions: ReconstructedPosition[],
+  markets: AnalyticsMarket[]
+): CategoryExposure[] {
+  const categoryByMarketId = new Map(markets.map((market) => [market.marketId, market.category || "Unknown"]));
+  const buckets = new Map<
+    string,
+    { volume: Decimal; tradeCount: number; marketIds: Set<string>; positionKeys: Set<string> }
+  >();
+  const totalVolume = trades.reduce((sum, trade) => sum.plus(tradeValue(trade)), new Decimal(0));
+
+  for (const trade of trades) {
+    const marketId = trade.conditionId || trade.marketId;
+    const category = categoryByMarketId.get(marketId) ?? categoryByMarketId.get(trade.marketId) ?? "Unknown";
+    const bucket = buckets.get(category) ?? {
+      volume: new Decimal(0),
+      tradeCount: 0,
+      marketIds: new Set<string>(),
+      positionKeys: new Set<string>()
+    };
+    bucket.volume = bucket.volume.plus(tradeValue(trade));
+    bucket.tradeCount += 1;
+    bucket.marketIds.add(marketId);
+    buckets.set(category, bucket);
+  }
+
+  for (const position of positions) {
+    const category = categoryByMarketId.get(position.marketId) ?? "Unknown";
+    const bucket = buckets.get(category) ?? {
+      volume: new Decimal(0),
+      tradeCount: 0,
+      marketIds: new Set<string>(),
+      positionKeys: new Set<string>()
+    };
+    bucket.positionKeys.add(positionKey(position));
+    buckets.set(category, bucket);
+  }
+
+  return [...buckets.entries()]
+    .map(([category, bucket]) => ({
+      category,
+      tradeCount: bucket.tradeCount,
+      marketCount: bucket.marketIds.size,
+      positionCount: bucket.positionKeys.size,
+      volume: money(bucket.volume),
+      volumeShare: totalVolume.isZero() ? "0" : money(bucket.volume.div(totalVolume))
+    }))
+    .sort((a, b) => decimal(b.volume).cmp(a.volume));
+}
+
+function summarizeOversizedTrades(trades: OversizedTrade[]): OversizedTradeSummary {
+  const closed = trades.filter((trade) => trade.result !== "open");
+  const totalPnl = closed.reduce((sum, trade) => sum.plus(trade.realizedPnl), new Decimal(0));
+  const totalValue = trades.reduce((sum, trade) => sum.plus(trade.value), new Decimal(0));
+  const wins = closed.filter((trade) => decimal(trade.realizedPnl).gt(0)).length;
+  const largestWin = closed.reduce(
+    (current, trade) => Decimal.max(current, decimal(trade.realizedPnl)),
+    new Decimal(0)
+  );
+  const largestLoss = closed.reduce(
+    (current, trade) => Decimal.min(current, decimal(trade.realizedPnl)),
+    new Decimal(0)
+  );
+
+  return {
+    count: trades.length,
+    roi: totalValue.isZero() ? "0" : money(totalPnl.div(totalValue)),
+    winrate: closed.length === 0 ? "0" : money(new Decimal(wins).div(closed.length)),
+    largestWin: money(largestWin),
+    largestLoss: money(largestLoss)
+  };
+}
+
+function calculateActivityCadence(trades: AnalyticsTrade[], now: Date): ActivityCadence {
+  if (trades.length === 0) {
+    return {
+      activeDays: 0,
+      observedDays: 0,
+      tradesPerActiveDay: "0",
+      daysSinceLastTrade: null
+    };
+  }
+
+  const dates = trades.map((trade) => new Date(trade.timestamp));
+  const activeDays = new Set(dates.map((date) => date.toISOString().slice(0, 10))).size;
+  const first = dates[0]!;
+  const last = dates[dates.length - 1]!;
+  const observedDays = Math.max(1, Math.ceil((last.getTime() - first.getTime()) / 86_400_000) + 1);
+  const daysSinceLastTrade = Math.max(0, Math.floor((now.getTime() - last.getTime()) / 86_400_000));
+
+  return {
+    activeDays,
+    observedDays,
+    tradesPerActiveDay: money(new Decimal(trades.length).div(activeDays)),
+    daysSinceLastTrade
+  };
+}
+
+function calculateFreshnessScore(daysSinceLastTrade: number | null): number {
+  if (daysSinceLastTrade === null) {
+    return 0;
+  }
+  if (daysSinceLastTrade <= 1) {
+    return 100;
+  }
+  if (daysSinceLastTrade <= 7) {
+    return 85;
+  }
+  if (daysSinceLastTrade <= 30) {
+    return 65;
+  }
+  if (daysSinceLastTrade <= 90) {
+    return 35;
+  }
+  return 10;
+}
+
+function calculateActivityScore(cadence: ActivityCadence): number {
+  if (cadence.activeDays === 0 || cadence.observedDays === 0) {
+    return 0;
+  }
+  const density = new Decimal(cadence.activeDays).div(cadence.observedDays);
+  const activeDayScore = Decimal.min(60, new Decimal(cadence.activeDays).div(20).mul(60));
+  return score(activeDayScore.plus(Decimal.min(40, density.mul(100))));
+}
+
+function calculateLiquidityScore(trades: AnalyticsTrade[], config: CopyReadinessConfig): number {
+  if (trades.length === 0) {
+    return 0;
+  }
+  const maxPositionSize = decimal(config.maxPositionSize);
+  const compatibleTrades = trades.filter((trade) => tradeValue(trade).lte(maxPositionSize)).length;
+  return score(new Decimal(compatibleTrades).div(trades.length).mul(100));
+}
+
+function calculatePositionSizeScore(
+  positions: ReconstructedPosition[],
+  config: CopyReadinessConfig
+): number {
+  if (positions.length === 0) {
+    return 50;
+  }
+  const maxPositionSize = decimal(config.maxPositionSize);
+  const minPositionSize = decimal(config.minPositionSize);
+  const compatiblePositions = positions.filter((position) => {
+    const exposure = decimal(position.currentShares).abs().mul(position.averageEntryPrice);
+    return exposure.isZero() || (exposure.gte(minPositionSize) && exposure.lte(maxPositionSize));
+  }).length;
+
+  return score(new Decimal(compatiblePositions).div(positions.length).mul(100));
+}
+
+function buildReadinessWarnings(input: {
+  tradeCount: number;
+  dataCoverageScore: number;
+  freshnessScore: number;
+  activityScore: number;
+  liquidityScore: number;
+  positionSizeScore: number;
+  oversizedTrades: OversizedTrade[];
+  oversizedTradeSummary: OversizedTradeSummary;
+}): ReadinessWarning[] {
+  const warnings: ReadinessWarning[] = [];
+
+  if (input.tradeCount < 50) {
+    warnings.push({
+      code: "LOW_DATA_COVERAGE",
+      severity: "warning",
+      message: "Limited public trade sample; use this wallet as a watch candidate until more history is available."
+    });
+  }
+  if (input.freshnessScore < 65) {
+    warnings.push({
+      code: "STALE_ACTIVITY",
+      severity: "warning",
+      message: "The wallet has not traded recently enough for fresh copy-trading evidence."
+    });
+  }
+  if (input.activityScore < 40) {
+    warnings.push({
+      code: "SPARSE_ACTIVITY",
+      severity: "info",
+      message: "Trading cadence is sparse, so signals may arrive irregularly."
+    });
+  }
+  if (input.liquidityScore < 70 || input.positionSizeScore < 70) {
+    warnings.push({
+      code: "POSITION_SIZE_MISMATCH",
+      severity: "warning",
+      message: "Observed trade sizes may be hard to mirror with the selected copy constraints."
+    });
+  }
+  if (input.oversizedTrades.length > 0) {
+    warnings.push({
+      code: "OVERSIZED_TRADES",
+      severity: "warning",
+      message: "Some trades exceed the configured copy size rules and should be capped or skipped in simulation."
+    });
+  }
+  if (decimal(input.oversizedTradeSummary.roi).lt(0)) {
+    warnings.push({
+      code: "NEGATIVE_OVERSIZED_ROI",
+      severity: "critical",
+      message: "Oversized closed trades have negative realized ROI in the available history."
+    });
+  }
+
+  return warnings;
 }
 
 function buildClosedTradeResults(trades: AnalyticsTrade[]): ClosedTradeResult[] {
