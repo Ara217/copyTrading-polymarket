@@ -1,7 +1,12 @@
-import { BadRequestException, Controller, Get, Param, Post, Query } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
 import { InjectQueue } from "@nestjs/bullmq";
 import type { Queue } from "bullmq";
-import { copyReadinessQuerySchema, paginationQuerySchema, success } from "@polyand/shared";
+import {
+  copyReadinessQuerySchema,
+  copySimulationSettingsSchema,
+  paginationQuerySchema,
+  success
+} from "@polyand/shared";
 import { WalletsService } from "./wallets.service";
 import { WALLET_SYNC_QUEUE } from "./wallets.constants";
 
@@ -95,6 +100,23 @@ export class WalletsController {
   async oversizedTrades(@Param("address") rawAddress: string, @Query() query: unknown) {
     const config = copyReadinessQuerySchema.parse(query);
     return success(await this.walletsService.getOversizedTrades(await this.resolveIdentifier(rawAddress), config));
+  }
+
+  @Post(":address/copy-simulations")
+  async createCopySimulation(@Param("address") rawAddress: string, @Body() body: unknown) {
+    const settings = copySimulationSettingsSchema.parse(body ?? {});
+    const walletAddress = await this.resolveIdentifier(rawAddress);
+    return success(await this.walletsService.runCopySimulation(walletAddress, settings));
+  }
+
+  @Get(":address/copy-simulations")
+  async listCopySimulations(@Param("address") rawAddress: string) {
+    return success(await this.walletsService.listCopySimulations(await this.resolveIdentifier(rawAddress)));
+  }
+
+  @Get(":address/copy-simulations/:id")
+  async getCopySimulation(@Param("address") rawAddress: string, @Param("id") id: string) {
+    return success(await this.walletsService.getCopySimulation(await this.resolveIdentifier(rawAddress), id));
   }
 
   private async resolveIdentifier(identifier: string): Promise<string> {

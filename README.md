@@ -1,6 +1,6 @@
 # Polyand Polymarket Analytics
 
-Local-first Polymarket wallet analytics platform for reconstructing wallet performance from historical trades.
+Local-first Polymarket copy-trading intelligence platform: reconstruct wallet performance from historical trades, score copy readiness, and simulate manual copy strategies.
 
 This is not a trading bot and does not execute trades.
 
@@ -8,6 +8,7 @@ This is not a trading bot and does not execute trades.
 
 - API: NestJS, Prisma, PostgreSQL, Redis, BullMQ, Zod, Decimal.js
 - Extension: React, TypeScript, Vite, Tailwind CSS, Zustand, ECharts, Chrome Extension MV3
+- Web dashboard (`apps/web`): same React stack as the extension, full-page layout
 - Monorepo: npm workspaces
 
 ## Local Setup
@@ -30,12 +31,19 @@ npm run build -w apps/extension
 
 Load `apps/extension/dist` as an unpacked Chrome extension.
 
-## Version 1 Flow
+## Wallet Flow
 
 1. Paste a wallet address, a Polymarket profile slug shaped like `0x...-timestamp`, or any Polymarket URL containing one.
 2. Click `Refresh` to enqueue a BullMQ wallet sync job.
 3. Wait for the worker to fetch trades and reconstruct positions.
-4. Click `Load` to view overview metrics, positions, trades, and PnL chart.
+4. Click `Load` to view overview metrics, positions, trades, and PnL chart (V1), performance analytics (V2), copy readiness (V3), and the copy trading simulator (V4).
+
+## Implemented Versions
+
+- V1 Wallet Analyzer
+- V2 Performance Analytics
+- V3 Copy Readiness
+- V4 Copy Trading Simulator (historical replay only; `POST /api/v1/wallets/:address/copy-simulations`)
 
 ## Important Notes
 

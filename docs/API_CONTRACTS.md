@@ -239,3 +239,99 @@ type OversizedTrade = {
   realizedPnl: string
 }
 ```
+
+## V4 Copy Simulation Settings Body
+
+`POST /wallets/:address/copy-simulations` accepts an optional JSON body validated with Zod. All fields have defaults; money values are serialized back as strings:
+
+- `startingBalance`: default `1000`
+- `copyPercentage`: fraction of the trader's trade value, `(0, 1]`, default `0.1`
+- `fixedCopyAmount`: overrides `copyPercentage` when set, default `null`
+- `maxPositionSize`: default `null` (unlimited)
+- `minPositionSize`: default `5`
+- `maxMarketExposure`: per-market cost-basis cap across outcomes, default `null`
+- `maxTotalExposure`: total open cost-basis cap, default `null`
+- `delaySeconds`: integer `0..604800`, default `0`
+- `allowedActions`: subset of `["entry", "add", "reduce", "close"]`, default all
+- `includeCategories`: whitelist, default `[]` (all)
+- `excludeCategories`: blacklist, default `[]`
+- `includeUnresolvedMarkets`: default `true`
+- `liquidityFilterEnabled`: skip copies larger than the observed trade notional, default `false`
+- `excludeOversizedTrades`: default `false`
+- `oversizedConfig`: `{ oversizedThreshold, topPercent, relativeMultiplier }`, default `null`
+- `drawdownStopPercent`: stop opening positions after this drawdown fraction of peak equity, `(0, 1]`, default `null`
+
+## POST `/wallets/:address/copy-simulations`
+
+Runs a historical copy-trading simulation against the stored trade history, persists it, and returns the record. Simulations never place orders or touch funds.
+
+```ts
+type CopySimulationRecord = {
+  id: string
+  walletAddress: string
+  createdAt: string
+  settings: CopySimulationSettings
+  result: {
+    settings: CopySimulationSettings
+    summary: {
+      startingBalance: string
+      endingCash: string
+      openPositionValue: string
+      endingEquity: string
+      realizedPnl: string
+      unrealizedPnl: string
+      totalPnl: string
+      roi: string
+      winrate: string
+      copiedTradeCount: number
+      closedCopyTradeCount: number
+      missedTradeCount: number
+      missedReasonCounts: Record<string, number>
+      fillMethodCounts: Record<string, number>   // counts by fill method: "actual" | "history" | "slippage"
+      maxDrawdown: string
+      maxDrawdownPercent: string
+      drawdownStopTriggered: boolean
+    }
+    // Each CopySimulationLedgerRow includes `fillMethod: "actual" | "history" | "slippage"`
+    ledger: CopySimulationLedgerRow[]
+    missedTrades: CopySimulationMissedRow[]
+    equityCurve: Array<{ date: string; cash: string; openExposure: string; equity: string }>
+    categoryBreakdown: Array<{
+      category: string
+      copiedTradeCount: number
+      missedTradeCount: number
+      volume: string
+      realizedPnl: string
+    }>
+    delaySensitivity: Array<{
+      delaySeconds: number
+      roi: string
+      totalPnl: string
+      copiedTradeCount: number
+      missedTradeCount: number
+    }>
+  }
+}
+```
+
+Missed-trade reasons: `ACTION_FILTERED`, `CATEGORY_EXCLUDED`, `UNRESOLVED_MARKET_EXCLUDED`, `OVERSIZED_TRADE`, `LIQUIDITY_FILTERED`, `DRAWDOWN_STOP`, `BELOW_MIN_SIZE`, `MAX_POSITION_SIZE`, `MAX_MARKET_EXPOSURE`, `MAX_TOTAL_EXPOSURE`, `INSUFFICIENT_BALANCE`, `NOTHING_TO_REDUCE`.
+
+Fill methods (how each delayed copy was priced): `actual` (delay 0 — the trader's price), `history` (real CLOB midpoint interpolated to trade-time + delay), `slippage` (modeled adverse estimate when no price history is available).
+
+## GET `/wallets/:address/copy-simulations`
+
+Returns up to the 50 most recent stored simulations for the wallet as list items:
+
+```ts
+type CopySimulationListItem = {
+  id: string
+  walletAddress: string
+  createdAt: string
+  settings: CopySimulationSettings
+  summary: CopySimulationSummary
+}
+```
+
+## GET `/wallets/:address/copy-simulations/:id`
+
+Returns a single stored simulation as a full `CopySimulationRecord`. Responds `404` when the id does not belong to the wallet.

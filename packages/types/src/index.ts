@@ -214,6 +214,149 @@ export interface CopyReadiness {
   updatedAt: string | null;
 }
 
+export type CopySimulationAction = "entry" | "add" | "reduce" | "close";
+
+export interface CopySimulationOversizedConfig {
+  oversizedThreshold: string;
+  topPercent: number;
+  relativeMultiplier: string;
+}
+
+export interface CopySimulationSettings {
+  startingBalance: string;
+  copyPercentage: string;
+  fixedCopyAmount: string | null;
+  maxPositionSize: string | null;
+  minPositionSize: string;
+  maxMarketExposure: string | null;
+  maxTotalExposure: string | null;
+  delaySeconds: number;
+  allowedActions: CopySimulationAction[];
+  includeCategories: string[];
+  excludeCategories: string[];
+  includeUnresolvedMarkets: boolean;
+  liquidityFilterEnabled: boolean;
+  excludeOversizedTrades: boolean;
+  oversizedConfig: CopySimulationOversizedConfig | null;
+  drawdownStopPercent: string | null;
+}
+
+export type CopySimulationMissedReason =
+  | "ACTION_FILTERED"
+  | "CATEGORY_EXCLUDED"
+  | "UNRESOLVED_MARKET_EXCLUDED"
+  | "OVERSIZED_TRADE"
+  | "LIQUIDITY_FILTERED"
+  | "DRAWDOWN_STOP"
+  | "BELOW_MIN_SIZE"
+  | "MAX_POSITION_SIZE"
+  | "MAX_MARKET_EXPOSURE"
+  | "MAX_TOTAL_EXPOSURE"
+  | "INSUFFICIENT_BALANCE"
+  | "NOTHING_TO_REDUCE";
+
+export type CopySimulationFillMethod = "actual" | "history" | "slippage";
+
+export interface CopySimulationLedgerRow {
+  sourceTradeId: string;
+  marketId: string;
+  marketTitle?: string | null;
+  conditionId: string;
+  outcome: string;
+  action: CopySimulationAction;
+  side: "buy" | "sell";
+  traderTimestamp: string;
+  executedAt: string;
+  executionPrice: string;
+  fillMethod: CopySimulationFillMethod;
+  shares: string;
+  value: string;
+  realizedPnl: string;
+  cashAfter: string;
+  openExposureAfter: string;
+}
+
+export interface CopySimulationMissedRow {
+  sourceTradeId: string;
+  marketId: string;
+  marketTitle?: string | null;
+  conditionId: string;
+  outcome: string;
+  action: CopySimulationAction;
+  timestamp: string;
+  reason: CopySimulationMissedReason;
+  detail: string;
+}
+
+export interface CopySimulationEquityPoint {
+  date: string;
+  cash: string;
+  openExposure: string;
+  equity: string;
+}
+
+export interface CopySimulationCategoryBreakdown {
+  category: string;
+  copiedTradeCount: number;
+  missedTradeCount: number;
+  volume: string;
+  realizedPnl: string;
+}
+
+export interface CopySimulationSummary {
+  startingBalance: string;
+  endingCash: string;
+  openPositionValue: string;
+  endingEquity: string;
+  realizedPnl: string;
+  unrealizedPnl: string;
+  totalPnl: string;
+  roi: string;
+  winrate: string;
+  copiedTradeCount: number;
+  closedCopyTradeCount: number;
+  missedTradeCount: number;
+  missedReasonCounts: Record<string, number>;
+  fillMethodCounts: Record<string, number>;
+  maxDrawdown: string;
+  maxDrawdownPercent: string;
+  drawdownStopTriggered: boolean;
+}
+
+export interface CopySimulationDelaySensitivityPoint {
+  delaySeconds: number;
+  roi: string;
+  totalPnl: string;
+  copiedTradeCount: number;
+  missedTradeCount: number;
+}
+
+export interface CopySimulationResult {
+  settings: CopySimulationSettings;
+  summary: CopySimulationSummary;
+  ledger: CopySimulationLedgerRow[];
+  missedTrades: CopySimulationMissedRow[];
+  equityCurve: CopySimulationEquityPoint[];
+  categoryBreakdown: CopySimulationCategoryBreakdown[];
+  delaySensitivity: CopySimulationDelaySensitivityPoint[];
+}
+
+export interface CopySimulationRecord {
+  id: string;
+  walletAddress: string;
+  createdAt: string;
+  settings: CopySimulationSettings;
+  result: CopySimulationResult;
+}
+
+export interface CopySimulationListItem {
+  id: string;
+  walletAddress: string;
+  createdAt: string;
+  settings: CopySimulationSettings;
+  summary: CopySimulationSummary;
+}
+
 export interface ApiSuccess<T> {
   data: T;
   meta?: Record<string, unknown>;

@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import { Processor, WorkerHost } from "@nestjs/bullmq";
 import type { Job } from "bullmq";
 import { WalletsService } from "./wallets.service";
@@ -9,6 +10,8 @@ interface WalletSyncJob {
 
 @Processor(WALLET_SYNC_QUEUE, { concurrency: 2 })
 export class WalletSyncProcessor extends WorkerHost {
+  private readonly logger = new Logger(WalletSyncProcessor.name);
+
   constructor(private readonly walletsService: WalletsService) {
     super();
   }
@@ -19,6 +22,10 @@ export class WalletSyncProcessor extends WorkerHost {
       await this.walletsService.refreshWallet(job.data.walletAddress);
       await this.walletsService.recordSyncJob(String(job.id), job.data.walletAddress, "completed");
     } catch (error) {
+      this.logger.error(
+        `Wallet sync failed for ${job.data.walletAddress} (job ${job.id})`,
+        error instanceof Error ? error.stack : String(error)
+      );
       await this.walletsService.recordSyncJob(String(job.id), job.data.walletAddress, "failed");
       await this.walletsService.recordSyncJob(`wallet:${job.data.walletAddress}:latest`, job.data.walletAddress, "failed");
       throw error;

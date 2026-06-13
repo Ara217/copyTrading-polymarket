@@ -31,6 +31,50 @@ export const copyReadinessQuerySchema = z.object({
   relativeMultiplier: z.coerce.number().positive().default(3).transform(String)
 });
 
+const moneyString = (schema: z.ZodNumber) => schema.transform(String);
+const optionalMoneyString = (schema: z.ZodNumber) =>
+  z
+    .union([schema.transform(String), z.null()])
+    .optional()
+    .transform((value) => value ?? null);
+
+export const copySimulationActionSchema = z.enum(["entry", "add", "reduce", "close"]);
+
+export const copySimulationSettingsSchema = z.object({
+  startingBalance: moneyString(z.coerce.number().positive()).default(1000),
+  copyPercentage: moneyString(z.coerce.number().gt(0).max(1)).default(0.1),
+  fixedCopyAmount: optionalMoneyString(z.coerce.number().positive()),
+  maxPositionSize: optionalMoneyString(z.coerce.number().positive()),
+  minPositionSize: moneyString(z.coerce.number().nonnegative()).default(5),
+  maxMarketExposure: optionalMoneyString(z.coerce.number().positive()),
+  maxTotalExposure: optionalMoneyString(z.coerce.number().positive()),
+  delaySeconds: z.coerce.number().int().min(0).max(604800).default(0),
+  allowedActions: z
+    .array(copySimulationActionSchema)
+    .min(1)
+    .default(["entry", "add", "reduce", "close"]),
+  includeCategories: z.array(z.string().trim().min(1)).default([]),
+  excludeCategories: z.array(z.string().trim().min(1)).default([]),
+  includeUnresolvedMarkets: z.coerce.boolean().default(true),
+  liquidityFilterEnabled: z.coerce.boolean().default(false),
+  excludeOversizedTrades: z.coerce.boolean().default(false),
+  oversizedConfig: z
+    .union([
+      z.object({
+        oversizedThreshold: moneyString(z.coerce.number().positive()).default(250),
+        topPercent: z.coerce.number().min(0.01).max(1).default(0.05),
+        relativeMultiplier: moneyString(z.coerce.number().positive()).default(3)
+      }),
+      z.null()
+    ])
+    .optional()
+    .transform((value) => value ?? null),
+  drawdownStopPercent: optionalMoneyString(z.coerce.number().gt(0).max(1))
+});
+
+export type CopySimulationSettingsInput = z.input<typeof copySimulationSettingsSchema>;
+export type ParsedCopySimulationSettings = z.output<typeof copySimulationSettingsSchema>;
+
 export const rawMetadataSchema = z.object({
   source: z.enum(["gamma", "data", "clob"]),
   fetchedAt: z.string().datetime(),

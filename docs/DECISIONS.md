@@ -64,3 +64,33 @@ These notes are the source of truth for future refreshes and continuation runs.
 - The copy-readiness API also returns a data-validation summary so UI users can compare synced trade count, market count, position count, oldest/latest synced activity, last sync time, source, adapter version, and public-window limitations before trusting the score.
 - Category exposure uses upstream market metadata first. When Gamma/Data metadata is missing, the backend applies conservative title/slug heuristics for broad categories such as Sports, Crypto, Politics, Esports, Finance, and Culture. Unknown remains visible when neither metadata nor heuristics are reliable.
 - Wallets at the current public Data API sync window are not treated as full lifetime proof. The UI should show this as a validation note and continue to treat deeper history as a future enhancement.
+
+## V4 Copy Trading Simulator
+
+- Simulations run synchronously inside the API request because stored histories are capped by the public Data API window; BullMQ-based async simulations stay a future option (the spec's `status`/`startedAt`/`completedAt`/`errorMessage` fields are deferred until needed).
+- The simulator replays the stored trade tape only. Delay handling executes the copy at the first observed trade price in the same market and outcome at or after `traderTimestamp + delaySeconds`, falling back to the source trade price when no later trade exists.
+- Copy sizing for buys is `fixedCopyAmount` when set, otherwise `traderTradeValue * copyPercentage`, then capped by max position size, max market exposure, max total exposure, and available cash. A capped value below `minPositionSize` becomes a missed trade attributed to the binding constraint.
+- Sells mirror the trader proportionally: if the trader closes 40% of their position, the copier closes 40% of theirs. Sells are never blocked by category, liquidity, oversized, or drawdown rules so positions can always wind down; only the action filter applies.
+- The replay equity curve is realized-basis (`startingBalance + cumulative realized PnL`), so buys do not move equity and the drawdown stop reacts to realized losses. Final unrealized PnL marks resolved markets at 1/0; unresolved copier positions stay at cost because no per-outcome stored price is reliable enough.
+- The drawdown stop only blocks new buys; reduces and closes continue after it triggers.
+- The liquidity filter is a placeholder per the spec: a copy larger than the observed trade notional is treated as unfillable and missed with `LIQUIDITY_FILTERED`.
+- Each simulation persists `settingsJson` and `resultJson` to the existing `CopySimulation` table; no schema migration was required. The list endpoint returns the latest 50.
+- Delay sensitivity is computed server-side by re-running the simulation at 0s, 1m, 5m, 15m, and 1h and is embedded in the stored result.
+
+## V4 Delay Fill Pricing (price history)
+
+- Delayed copy fills are priced by a strategy chain recorded per ledger row as `fillMethod`:
+  1. `actual` — at delay 0 the copier fills at the trader's own price.
+  2. `history` — with delay, interpolate the market's real CLOB midpoint timeseries to `tradeTime + delay`.
+  3. `slippage` — when no price history is available for that market, apply a modeled adverse drift (`DELAY_SLIPPAGE_PER_MINUTE = 0.1%/min`, clamped to (0,1)). This is an estimate, never presented as a real fill.
+- This replaces the earlier "next observed trade in the same market" approximation, which made delay sensitivity coarse and non-monotonic (it snapped to the trader's own re-trades).
+- Price history comes from the CLOB `/prices-history?market=<tokenId>&interval=max&fidelity=10` endpoint, keyed by the outcome token id (`asset`) already stored in each trade's `rawJson` — no schema change.
+- Fetching is on-demand at simulation time with a Redis cache (`clob:price-history:<token>`, TTL 1h), bounded to `maxPriceHistoryTokens = 300` per simulation ordered by most recent activity, fetched with concurrency 8. The same fetched histories are reused across the main run and the five delay-sensitivity runs. Markets beyond the cap (or lacking history) fall back to the slippage estimate; the `summary.fillMethodCounts` split makes coverage explicit.
+- Redis is the same instance BullMQ already uses, so this adds no new infrastructure. Cache misses cost one CLOB call per token (first simulation of a wallet); warm runs read from cache.
+
+## CLOB API Scope
+
+- CLOB read endpoints are adopted per-version when a feature requires them, never speculatively.
+- Currently used: `/book` (unresolved-position valuation) and `/prices-history` (V4 delayed-fill pricing, on-demand + Redis-cached).
+- Planned: `/book` depth + `/spread` for real liquidity scoring (V5) and a non-placeholder V4 liquidity filter; `/midpoint`/`/price`/`/spread` and their batch variants for live alert context (V7/V8).
+- Permanent boundary: CLOB order/authenticated endpoints (`/order`, signing, allowances) are never used. The platform is decision-support only — no order placement, key handling, or live execution. See `docs/ARCHITECTURE.md` ("CLOB API Usage And Roadmap") for the full endpoint map.

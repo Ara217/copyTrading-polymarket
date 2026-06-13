@@ -213,4 +213,4 @@ Load `apps/extension/dist` as an unpacked Chrome extension.
 
 ## Current Baseline
 
-V1 is implemented. Before starting V2, validate real Polymarket wallet syncs and inspect adapter output quality.
+V1 through V4 are implemented: wallet analyzer, performance analytics, copy readiness, and the copy trading simulator. The next version is V5 (copyability ranking). Before starting V5, review the simulator output quality on real synced wallets and the V4 decisions in `docs/DECISIONS.md`.

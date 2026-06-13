@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { parseWalletAddress } from "@polyand/shared";
 import { DataClient } from "./data.client";
 import { GammaClient } from "./gamma.client";
-import { ClobClient } from "./clob.client";
+import { ClobClient, type ClobPriceHistoryPoint } from "./clob.client";
 import { MarketPriceSnapshot, NormalizedMarket, NormalizedTrade } from "./types";
 
 @Injectable()
@@ -40,6 +40,10 @@ export class PolymarketService {
 
   async getMarkets(conditionIds: string[]): Promise<NormalizedMarket[]> {
     return this.gammaClient.getMarketsByConditionIds(conditionIds);
+  }
+
+  async getPriceHistory(tokenId: string): Promise<ClobPriceHistoryPoint[] | null> {
+    return this.clobClient.getPriceHistory(tokenId);
   }
 
   async getPriceSnapshots(markets: NormalizedMarket[], trades: NormalizedTrade[]): Promise<MarketPriceSnapshot[]> {

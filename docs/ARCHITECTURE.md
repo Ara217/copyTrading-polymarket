@@ -96,3 +96,20 @@ Copy readiness is shown with a backend-generated validation summary before any s
 Category exposure is derived from market metadata first and conservative backend title/slug heuristics second. Unknown category exposure stays visible when the app cannot classify a market reliably.
 
 The web dashboard persists the active wallet in the `wallet` query parameter and reloads that wallet on browser refresh. Heavy analytics panels are collapsible so positions remain the primary workflow and deeper V2/V3 diagnostics are available on demand.
+
+## CLOB API Usage And Roadmap
+
+The Polymarket CLOB API (`https://clob.polymarket.com`) splits by whether an endpoint needs a *live* order book. This determines where each one fits.
+
+- History endpoints work across a market's whole life, including resolved markets.
+- Live endpoints (`/book`, `/midpoint`, `/price`, `/spread`) only return data for currently-open markets, so they suit "what's happening now" features, not historical analysis.
+
+| Endpoint | Status | Use |
+|---|---|---|
+| `/book` (order book) | Used now | Midpoint for unresolved-position valuation at sync time. Future: real book-depth fill/slippage modeling (V4.x liquidity filter, V5 liquidity score). |
+| `/prices-history` | Used now | V4 delayed-fill pricing (interpolated to trade-time + delay), keyed by the outcome token id stored in trade `rawJson`, fetched on-demand and Redis-cached. Future reuse: V5 drawdown/volatility from real prices, V7 sparklines. |
+| `/midpoint`, `/price`, `/spread` | Not used | V7 live alert context (current price + spread when a watched wallet acts); spread is also a V5 liquidity signal. |
+| `/books`, `/midpoints`, `/prices` (batch) | Not used | V7/V8 at scale — one batch call instead of N singles when checking many watched markets. |
+| `/order`, `/orders`, signing, allowances (auth) | Out of scope permanently | Live trading. Hard product boundary: no order placement, no private keys, no signing. |
+
+These read endpoints are introduced per-version when a feature needs them, not speculatively. The V4 on-demand + Redis-cache pattern (`clob:price-history:<token>`) is the reusable template for the live endpoints.

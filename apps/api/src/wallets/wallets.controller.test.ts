@@ -124,4 +124,65 @@ describe("WalletsController", () => {
       })
     );
   });
+
+  it("validates copy simulation settings before running a simulation", async () => {
+    const queue = { add: vi.fn() };
+    const walletAddress = "0x1111111111111111111111111111111111111111";
+    const service = {
+      resolveWalletIdentifier: vi.fn().mockResolvedValue(walletAddress),
+      runCopySimulation: vi.fn()
+    };
+    const controller = new WalletsController(service as never, queue as never);
+
+    await expect(
+      controller.createCopySimulation(walletAddress, { startingBalance: 0 })
+    ).rejects.toThrow();
+    expect(service.runCopySimulation).not.toHaveBeenCalled();
+  });
+
+  it("runs a copy simulation with parsed settings and returns the persisted record", async () => {
+    const queue = { add: vi.fn() };
+    const walletAddress = "0x1111111111111111111111111111111111111111";
+    const record = {
+      id: "sim-1",
+      walletAddress,
+      createdAt: "2026-06-12T00:00:00.000Z",
+      settings: expect.anything(),
+      result: expect.anything()
+    };
+    const service = {
+      resolveWalletIdentifier: vi.fn().mockResolvedValue(walletAddress),
+      runCopySimulation: vi.fn().mockResolvedValue(record)
+    };
+    const controller = new WalletsController(service as never, queue as never);
+
+    await expect(
+      controller.createCopySimulation(walletAddress, { copyPercentage: 0.25, delaySeconds: "300" })
+    ).resolves.toEqual({ data: record });
+    expect(service.runCopySimulation).toHaveBeenCalledWith(
+      walletAddress,
+      expect.objectContaining({
+        startingBalance: "1000",
+        copyPercentage: "0.25",
+        delaySeconds: 300,
+        allowedActions: ["entry", "add", "reduce", "close"]
+      })
+    );
+  });
+
+  it("lists copy simulations and fetches a simulation by id", async () => {
+    const queue = { add: vi.fn() };
+    const walletAddress = "0x1111111111111111111111111111111111111111";
+    const listItem = { id: "sim-1", walletAddress, createdAt: "2026-06-12T00:00:00.000Z" };
+    const service = {
+      resolveWalletIdentifier: vi.fn().mockResolvedValue(walletAddress),
+      listCopySimulations: vi.fn().mockResolvedValue([listItem]),
+      getCopySimulation: vi.fn().mockResolvedValue(listItem)
+    };
+    const controller = new WalletsController(service as never, queue as never);
+
+    await expect(controller.listCopySimulations(walletAddress)).resolves.toEqual({ data: [listItem] });
+    await expect(controller.getCopySimulation(walletAddress, "sim-1")).resolves.toEqual({ data: listItem });
+    expect(service.getCopySimulation).toHaveBeenCalledWith(walletAddress, "sim-1");
+  });
 });

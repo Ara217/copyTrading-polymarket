@@ -8,14 +8,24 @@ import {
   calculateCopyReadiness,
   calculateWalletMetrics,
   reconstructPositions,
+  simulateCopyTrading,
+  simulateDelaySensitivity,
   type AnalyticsTrade,
-  type CopyReadinessConfig
+  type CopyPriceHistorySeries,
+  type CopyReadinessConfig,
+  type CopySimulationInput,
+  type MarketPrice
 } from "@polyand/analytics";
 import {
   type CategoryExposure,
   type CopyReadiness,
   type CopyReadinessDataValidation,
   type CopyReadinessInterpretation,
+  type CopySimulationListItem,
+  type CopySimulationRecord,
+  type CopySimulationResult,
+  type CopySimulationSettings,
+  type CopySimulationSummary,
   type DrawdownChartPoint,
   type OversizedTrade,
   type PnlChartPoint,
@@ -31,7 +41,12 @@ import { CacheService } from "../cache/cache.service";
 import { PolymarketService } from "../polymarket/polymarket.service";
 import { NormalizedMarket, NormalizedTrade } from "../polymarket/types";
 import { PrismaService } from "../prisma/prisma.service";
-import { parseWalletAddress, polymarketProfileSlugSchema, walletAddressFromProfileSlug } from "@polyand/shared";
+import {
+  parseWalletAddress,
+  polymarketProfileSlugSchema,
+  walletAddressFromProfileSlug,
+  type ParsedCopySimulationSettings
+} from "@polyand/shared";
 import { inferMarketCategory } from "./market-category";
 
 @Injectable()
@@ -231,7 +246,7 @@ export class WalletsService {
           configJson: readiness.config as unknown as Prisma.InputJsonValue
         }
       });
-    });
+    }, { timeout: 30_000, maxWait: 10_000 });
 
     await this.cache.del(this.overviewCacheKey(walletAddress));
     await this.recordSyncJob(`wallet:${walletAddress}:latest`, walletAddress, "completed");
@@ -524,6 +539,205 @@ export class WalletsService {
       dataValidation,
       interpretation: this.buildReadinessInterpretation(readiness, dataValidation),
       updatedAt: persistedReadiness?.updatedAt.toISOString() ?? null
+    };
+  }
+
+  private static readonly delaySensitivitySeconds = [0, 60, 300, 900, 3600];
+  // Bound the on-demand CLOB fetch per simulation. Markets are ordered by most recent
+  // activity (delay accuracy matters most for active markets); the rest fall back to
+  // the modeled slippage estimate in the engine.
+  private static readonly maxPriceHistoryTokens = 300;
+  private static readonly priceHistoryConcurrency = 8;
+  private static readonly priceHistoryCacheTtlSeconds = 3600;
+
+  private async getCachedPriceHistory(tokenId: string): Promise<CopyPriceHistorySeries["points"] | null> {
+    const cacheKey = `clob:price-history:${tokenId}`;
+    const cached = await this.cache.getJson<CopyPriceHistorySeries["points"]>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    const points = await this.polymarket.getPriceHistory(tokenId);
+    if (points && points.length > 0) {
+      await this.cache.setJson(cacheKey, points, WalletsService.priceHistoryCacheTtlSeconds);
+      return points;
+    }
+    return null;
+  }
+
+  private async buildPriceHistory(
+    trades: Array<{ marketId: string; outcome: string; timestamp: Date; rawJson: Prisma.JsonValue }>
+  ): Promise<CopyPriceHistorySeries[]> {
+    // One distinct (market, outcome) -> token spec, keyed off the asset id we already
+    // store in each trade's rawJson. Most-recent markets first, capped.
+    const specByKey = new Map<string, { marketId: string; outcome: string; token: string; lastTradeMs: number }>();
+    for (const trade of trades) {
+      const asset = this.extractAssetId(trade.rawJson);
+      if (!asset) {
+        continue;
+      }
+      const key = `${trade.marketId} ${trade.outcome}`;
+      const lastTradeMs = trade.timestamp.getTime();
+      const existing = specByKey.get(key);
+      if (!existing) {
+        specByKey.set(key, { marketId: trade.marketId, outcome: trade.outcome, token: asset, lastTradeMs });
+      } else if (lastTradeMs > existing.lastTradeMs) {
+        existing.lastTradeMs = lastTradeMs;
+      }
+    }
+
+    const specs = [...specByKey.values()]
+      .sort((a, b) => b.lastTradeMs - a.lastTradeMs)
+      .slice(0, WalletsService.maxPriceHistoryTokens);
+
+    const series: CopyPriceHistorySeries[] = [];
+    for (let i = 0; i < specs.length; i += WalletsService.priceHistoryConcurrency) {
+      const batch = specs.slice(i, i + WalletsService.priceHistoryConcurrency);
+      const results = await Promise.all(
+        batch.map(async (spec) => {
+          const points = await this.getCachedPriceHistory(spec.token);
+          return points && points.length > 0
+            ? ({ marketId: spec.marketId, outcome: spec.outcome, points } satisfies CopyPriceHistorySeries)
+            : null;
+        })
+      );
+      for (const entry of results) {
+        if (entry) {
+          series.push(entry);
+        }
+      }
+    }
+    return series;
+  }
+
+  private extractAssetId(rawJson: Prisma.JsonValue): string | null {
+    if (!rawJson || typeof rawJson !== "object" || Array.isArray(rawJson)) {
+      return null;
+    }
+    const asset = (rawJson as Record<string, unknown>).asset;
+    return typeof asset === "string" && asset.length > 0 ? asset : null;
+  }
+
+  async runCopySimulation(
+    walletAddress: string,
+    settings: ParsedCopySimulationSettings
+  ): Promise<CopySimulationRecord> {
+    const trades = await this.prisma.trade.findMany({
+      where: { walletAddress },
+      include: { market: true },
+      orderBy: { timestamp: "asc" }
+    });
+
+    if (trades.length === 0) {
+      throw new NotFoundException("Wallet has not been synced");
+    }
+
+    const analyticsTrades: AnalyticsTrade[] = trades.map((trade) => ({
+      id: trade.id,
+      marketId: trade.marketId,
+      conditionId: trade.conditionId,
+      outcome: trade.outcome,
+      price: trade.price.toString(),
+      size: trade.size.toString(),
+      timestamp: trade.timestamp.toISOString(),
+      side: trade.side
+    }));
+    const markets = trades.map((trade) => ({
+      marketId: trade.conditionId,
+      category: inferMarketCategory(trade.market.category, trade.market.title, trade.market.slug, trade.market.rawJson),
+      resolved: trade.market.resolved
+    }));
+    // Only resolved markets get a deterministic mark price (1/0). Unresolved copier
+    // positions stay valued at cost, so unrealized PnL never relies on stale quotes.
+    const marketPrices: MarketPrice[] = [];
+    const pricedOutcomes = new Set<string>();
+    for (const trade of trades) {
+      const key = `${trade.conditionId}:${trade.outcome}`;
+      if (!trade.market.resolved || pricedOutcomes.has(key)) {
+        continue;
+      }
+      pricedOutcomes.add(key);
+      marketPrices.push({
+        marketId: trade.conditionId,
+        outcome: trade.outcome,
+        price: "0",
+        resolved: true,
+        winningOutcome: trade.market.winningOutcome
+      });
+    }
+
+    const priceHistory = await this.buildPriceHistory(trades);
+    const input: CopySimulationInput = {
+      trades: analyticsTrades,
+      markets,
+      marketPrices,
+      priceHistory,
+      settings
+    };
+    const simulation = simulateCopyTrading(input);
+    const delaySensitivity = simulateDelaySensitivity(input, WalletsService.delaySensitivitySeconds);
+    const titleByConditionId = new Map(trades.map((trade) => [trade.conditionId, trade.market.title]));
+    const result: CopySimulationResult = {
+      settings: simulation.settings as unknown as CopySimulationSettings,
+      summary: simulation.summary,
+      ledger: simulation.ledger.map((row) => ({
+        ...row,
+        marketTitle: titleByConditionId.get(row.conditionId) ?? null
+      })),
+      missedTrades: simulation.missedTrades.map((row) => ({
+        ...row,
+        marketTitle: titleByConditionId.get(row.conditionId) ?? null
+      })),
+      equityCurve: simulation.equityCurve,
+      categoryBreakdown: simulation.categoryBreakdown,
+      delaySensitivity
+    };
+
+    const stored = await this.prisma.copySimulation.create({
+      data: {
+        walletAddress,
+        settingsJson: result.settings as unknown as Prisma.InputJsonValue,
+        resultJson: result as unknown as Prisma.InputJsonValue
+      }
+    });
+
+    return {
+      id: stored.id,
+      walletAddress,
+      createdAt: stored.createdAt.toISOString(),
+      settings: result.settings,
+      result
+    };
+  }
+
+  async listCopySimulations(walletAddress: string): Promise<CopySimulationListItem[]> {
+    const simulations = await this.prisma.copySimulation.findMany({
+      where: { walletAddress },
+      orderBy: { createdAt: "desc" },
+      take: 50
+    });
+
+    return simulations.map((simulation) => ({
+      id: simulation.id,
+      walletAddress: simulation.walletAddress,
+      createdAt: simulation.createdAt.toISOString(),
+      settings: simulation.settingsJson as unknown as CopySimulationSettings,
+      summary: (simulation.resultJson as unknown as CopySimulationResult).summary as CopySimulationSummary
+    }));
+  }
+
+  async getCopySimulation(walletAddress: string, id: string): Promise<CopySimulationRecord> {
+    const simulation = await this.prisma.copySimulation.findFirst({ where: { id, walletAddress } });
+
+    if (!simulation) {
+      throw new NotFoundException("Copy simulation not found");
+    }
+
+    return {
+      id: simulation.id,
+      walletAddress: simulation.walletAddress,
+      createdAt: simulation.createdAt.toISOString(),
+      settings: simulation.settingsJson as unknown as CopySimulationSettings,
+      result: simulation.resultJson as unknown as CopySimulationResult
     };
   }
 

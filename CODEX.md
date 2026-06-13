@@ -4,7 +4,7 @@ Codex should use this file as the operating guide for future sessions in this re
 
 ## Repository Purpose
 
-This repository implements a Polymarket Analytics Platform for analyzing wallet performance and evaluating copy-trading opportunities.
+This repository implements a Polymarket Copy-Trading Intelligence Platform for analyzing wallet performance, validating copy readiness, and simulating manual copy strategies.
 
 Do not implement trading execution. Do not implement private-key handling. Do not implement automated live copy trading.
 
@@ -21,10 +21,10 @@ docs/ROADMAP.md
 docs/versions/<current-version>.md
 ```
 
-Current baseline is V1. The next feature version is V2:
+Current baseline is V4 (V1 wallet analyzer, V2 performance analytics, V3 copy readiness, and V4 copy trading simulator are implemented). The next feature version is V5:
 
 ```text
-docs/versions/V2_PERFORMANCE_ANALYTICS.md
+docs/versions/V5_COPYABILITY_RANKING.md
 ```
 
 ## Skills To Use
@@ -46,7 +46,7 @@ For future implementation work, use the relevant local skills:
 4. Implement `packages/analytics`.
 5. Add Prisma schema changes and migrations.
 6. Implement API services/controllers/workers.
-7. Implement extension UI.
+7. Implement extension and web UI.
 8. Run verification.
 9. Update docs and decisions.
 
@@ -81,7 +81,6 @@ Docker Desktop must be running before Compose works.
 Run Compose from the project root:
 
 ```bash
-cd /Users/tatevikmeloyan/Projects/copytrading-polyand
 docker compose up -d
 ```
 
@@ -102,6 +101,9 @@ The app has been verified with:
 - Five Polymarket profile URLs checked with Playwright network traces.
 - Profile slugs shaped `0x...-timestamp` resolve to the embedded `0x...` address, matching Polymarket Data API calls.
 - High-activity wallets can store 1000 V1 Data API trades while the extension displays the first 100 and shows the loaded count.
+- V2 performance analytics, V3 copy readiness, and V4 copy simulations run from the same stored, deduped trade set; readiness responses surface the public-window limitation via `dataValidation.apiWindowLimited`.
+- V4 copy simulations run synchronously in the API request, persist to the `CopySimulation` table, and embed delay sensitivity (0s/1m/5m/15m/1h). Replay semantics are in `docs/DECISIONS.md` under "V4 Copy Trading Simulator".
+- If typecheck fails with missing `Prisma.Decimal` / `Prisma.InputJsonValue` after a fresh install, run `cd apps/api && npx prisma generate`.
 
 ## Boundaries
 

@@ -3,6 +3,7 @@ import { ArrowLeft, BarChart3, ChevronDown, Moon, RefreshCw, Search, Sun } from 
 import type { PositionRow, TradeRow } from "@polyand/types";
 import { useWalletStore } from "../store/walletStore";
 import { CopyReadinessPanel } from "./CopyReadinessPanel";
+import { CopySimulatorPanel } from "./CopySimulatorPanel";
 import { MetricGrid } from "./MetricGrid";
 import { PnlChart } from "./PnlChart";
 import { PositionsTable } from "./PositionsTable";
@@ -17,6 +18,7 @@ export function App() {
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
     positions: false,
     copyReadiness: true,
+    copySimulator: true,
     performance: true,
     highlights: true,
     charts: true
@@ -193,6 +195,14 @@ export function App() {
               onToggle={() => toggleSection("copyReadiness")}
             >
               <CopyReadinessPanel readiness={copyReadiness} showHeader={false} embedded />
+            </CollapsibleSection>
+            <CollapsibleSection
+              title="Copy Trading Simulator"
+              description="Replay this wallet's history as a manual copy strategy with your own balance, sizing, delay, and filters."
+              collapsed={collapsedSections.copySimulator}
+              onToggle={() => toggleSection("copySimulator")}
+            >
+              <CopySimulatorPanel address={overview?.address ?? ""} showHeader={false} embedded />
             </CollapsibleSection>
             <CollapsibleSection
               title="Performance"

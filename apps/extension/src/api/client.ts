@@ -2,6 +2,9 @@ import type {
   ApiFailure,
   ApiSuccess,
   CopyReadiness,
+  CopySimulationAction,
+  CopySimulationListItem,
+  CopySimulationRecord,
   DrawdownChartPoint,
   PnlChartPoint,
   PositionRow,
@@ -14,6 +17,24 @@ import type {
 } from "@polyand/types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000/api/v1";
+
+export interface CopySimulationRequest {
+  startingBalance: number;
+  copyPercentage: number;
+  fixedCopyAmount: number | null;
+  maxPositionSize: number | null;
+  minPositionSize: number;
+  maxMarketExposure: number | null;
+  maxTotalExposure: number | null;
+  delaySeconds: number;
+  allowedActions: CopySimulationAction[];
+  includeCategories: string[];
+  excludeCategories: string[];
+  includeUnresolvedMarkets: boolean;
+  liquidityFilterEnabled: boolean;
+  excludeOversizedTrades: boolean;
+  drawdownStopPercent: number | null;
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -50,5 +71,16 @@ export const api = {
   getWinLossChart: (address: string) =>
     request<WinLossChartPoint[]>(`/wallets/${encodeURIComponent(address)}/win-loss-chart`),
   getCopyReadiness: (address: string) =>
-    request<CopyReadiness>(`/wallets/${encodeURIComponent(address)}/copy-readiness`)
+    request<CopyReadiness>(`/wallets/${encodeURIComponent(address)}/copy-readiness`),
+  runCopySimulation: (address: string, settings: CopySimulationRequest) =>
+    request<CopySimulationRecord>(`/wallets/${encodeURIComponent(address)}/copy-simulations`, {
+      method: "POST",
+      body: JSON.stringify(settings)
+    }),
+  listCopySimulations: (address: string) =>
+    request<CopySimulationListItem[]>(`/wallets/${encodeURIComponent(address)}/copy-simulations`),
+  getCopySimulation: (address: string, id: string) =>
+    request<CopySimulationRecord>(
+      `/wallets/${encodeURIComponent(address)}/copy-simulations/${encodeURIComponent(id)}`
+    )
 };

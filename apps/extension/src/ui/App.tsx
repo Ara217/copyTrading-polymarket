@@ -3,6 +3,7 @@ import { ArrowLeft, BarChart3, Moon, RefreshCw, Search, Sun } from "lucide-react
 import type { PositionRow, TradeRow } from "@polyand/types";
 import { useWalletStore } from "../store/walletStore";
 import { CopyReadinessPanel } from "./CopyReadinessPanel";
+import { CopySimulatorPanel } from "./CopySimulatorPanel";
 import { MetricGrid } from "./MetricGrid";
 import { PnlChart } from "./PnlChart";
 import { PositionsTable } from "./PositionsTable";
@@ -148,6 +149,7 @@ export function App() {
       {!selectedPosition ? (
         <section className="grid gap-3 border-t border-line px-5 py-4">
           <CopyReadinessPanel readiness={copyReadiness} />
+          <CopySimulatorPanel address={overview?.address ?? ""} />
           <PerformancePanel performance={performance} />
           <PnlChart points={pnlChart} />
           <V2Charts drawdown={drawdownChart} distribution={profitDistribution} winLoss={winLossChart} />

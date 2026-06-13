@@ -129,3 +129,13 @@ API tests:
 - All calculations are backend-only.
 - Simulator output is explicit enough to decide whether a wallet is copyable.
 - Tests, typecheck, and build pass.
+
+## Implementation Status
+
+V4 is implemented:
+
+- Engine: `packages/analytics/src/simulator.ts` (`simulateCopyTrading`, `simulateDelaySensitivity`), unit-tested in `simulator.test.ts`.
+- Validation: `copySimulationSettingsSchema` in `packages/shared`.
+- API: `POST/GET /wallets/:address/copy-simulations` and `GET /wallets/:address/copy-simulations/:id` in `apps/api`, persisted to the existing `CopySimulation` table (synchronous; async/BullMQ fields deferred).
+- UI: `CopySimulatorPanel` in both `apps/web` and `apps/extension` with settings form, summary, equity curve, ledger, missed trades, category breakdown, and delay sensitivity.
+- See `docs/DECISIONS.md` ("V4 Copy Trading Simulator") for replay semantics and placeholders.
