@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import ReactECharts from "echarts-for-react";
-import { Play } from "lucide-react";
-import type { CopySimulationAction, CopySimulationRecord } from "@polyand/types";
+import { Play, Wand2 } from "lucide-react";
+import type { CopySimulationAction, CopySimulationRecord, CopySizingSuggestion } from "@polyand/types";
 import { api, type CopySimulationRequest } from "../api/client";
 import { formatAmount, formatDateTime, formatPercent } from "../utils/format";
 import { SectionHeader } from "./InfoTooltip";
@@ -68,6 +68,38 @@ export function CopySimulatorPanel({ address, showHeader = true, embedded = fals
   const [record, setRecord] = useState<CopySimulationRecord | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [suggestion, setSuggestion] = useState<CopySizingSuggestion | null>(null);
+
+  useEffect(() => {
+    setSuggestion(null);
+    if (!address) {
+      return;
+    }
+    let active = true;
+    api
+      .getCopySizingSuggestion(address)
+      .then((result) => {
+        if (active) {
+          setSuggestion(result);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [address]);
+
+  const applySuggestion = () => {
+    if (!suggestion) {
+      return;
+    }
+    setForm((current) => ({
+      ...current,
+      copyPercentage: String(Number(suggestion.recommendedCopyPercentage) * 100),
+      minPositionSize: suggestion.recommendedMinPositionSize,
+      fixedCopyAmount: ""
+    }));
+  };
 
   const update = <K extends keyof SimulatorFormState>(key: K, value: SimulatorFormState[K]) =>
     setForm((current) => ({ ...current, [key]: value }));
@@ -112,6 +144,24 @@ export function CopySimulatorPanel({ address, showHeader = true, embedded = fals
       ) : null}
 
       <div className="grid gap-4 p-4">
+        {suggestion && suggestion.tradeCount > 0 ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-line bg-panel px-3 py-2 text-xs text-slate-600">
+            <span>
+              This wallet's typical trade is{" "}
+              <span className="font-semibold text-ink">{formatAmount(suggestion.medianTradeValue, "usd")}</span> (median).
+              Recommended: copy {formatPercent(suggestion.recommendedCopyPercentage)}, min{" "}
+              {formatAmount(suggestion.recommendedMinPositionSize, "usd")} per position.
+            </span>
+            <button
+              type="button"
+              onClick={applySuggestion}
+              className="inline-flex items-center gap-1.5 rounded-md border border-line bg-white px-2.5 py-1.5 font-medium text-ink"
+            >
+              <Wand2 size={14} />
+              Use recommended settings
+            </button>
+          </div>
+        ) : null}
         <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-4">
           <FormField label="Starting balance ($)">
             <NumberInput value={form.startingBalance} onChange={(value) => update("startingBalance", value)} />
@@ -258,6 +308,12 @@ export function CopySimulationResults({ record }: { record: CopySimulationRecord
         <SummaryCard label="Open position value" value={formatAmount(summary.openPositionValue, "usd")} />
       </div>
 
+      {summary.copiedTradeCount === 0 ? (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {emptyStateMessage(summary)}
+        </div>
+      ) : null}
+
       {summary.drawdownStopTriggered ? (
         <div className="rounded-md border border-line bg-panel px-3 py-2 text-sm text-slate-700">
           The drawdown stop was triggered during this replay, so later entries were skipped.
@@ -367,6 +423,38 @@ function parseCategories(value: string): string[] {
     .split(",")
     .map((category) => category.trim())
     .filter((category) => category.length > 0);
+}
+
+function emptyStateMessage(summary: CopySimulationRecord["result"]["summary"]): string {
+  // The dominant blocking reason explains why no buys were copied. NOTHING_TO_REDUCE
+  // is a downstream effect of skipped buys, so it's not treated as the root cause.
+  const blocking = Object.entries(summary.missedReasonCounts)
+    .filter(([reason]) => reason !== "NOTHING_TO_REDUCE")
+    .sort((a, b) => b[1] - a[1]);
+  const top = blocking[0]?.[0] ?? Object.keys(summary.missedReasonCounts)[0];
+
+  switch (top) {
+    case "BELOW_MIN_SIZE":
+      return "No trades matched: every copy came out below your minimum position size. This wallet's trades are small — lower the minimum or raise the copy percentage (try 'Use recommended settings').";
+    case "INSUFFICIENT_BALANCE":
+      return "No trades matched: the starting balance ran out before any position cleared the minimum. Raise the starting balance or lower the copy size.";
+    case "MAX_TOTAL_EXPOSURE":
+    case "MAX_MARKET_EXPOSURE":
+    case "MAX_POSITION_SIZE":
+      return "No trades matched: your exposure limits blocked every buy. Raise the position/market/total exposure caps.";
+    case "CATEGORY_EXCLUDED":
+      return "No trades matched: every trade was outside your category filters. Adjust the include/exclude categories.";
+    case "OVERSIZED_TRADE":
+      return "No trades matched: every trade was filtered out as oversized. Disable the oversized filter or loosen its thresholds.";
+    case "LIQUIDITY_FILTERED":
+      return "No trades matched: the liquidity filter skipped every copy as too large to fill. Disable it or lower the copy size.";
+    case "UNRESOLVED_MARKET_EXCLUDED":
+      return "No trades matched: every trade was in an unresolved market, which you excluded. Enable unresolved markets.";
+    case "DRAWDOWN_STOP":
+      return "No trades matched: the drawdown stop halted copying. Raise the drawdown threshold.";
+    default:
+      return "No trades matched your current settings. Try 'Use recommended settings' or loosen the filters.";
+  }
 }
 
 const fillMethodLabel: Record<string, string> = {

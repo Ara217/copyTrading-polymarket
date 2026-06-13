@@ -5,6 +5,7 @@ import type {
   CopySimulationAction,
   CopySimulationListItem,
   CopySimulationRecord,
+  CopySizingSuggestion,
   DrawdownChartPoint,
   PnlChartPoint,
   PositionRow,
@@ -72,6 +73,8 @@ export const api = {
     request<WinLossChartPoint[]>(`/wallets/${encodeURIComponent(address)}/win-loss-chart`),
   getCopyReadiness: (address: string) =>
     request<CopyReadiness>(`/wallets/${encodeURIComponent(address)}/copy-readiness`),
+  getCopySizingSuggestion: (address: string) =>
+    request<CopySizingSuggestion>(`/wallets/${encodeURIComponent(address)}/copy-sizing-suggestion`),
   runCopySimulation: (address: string, settings: CopySimulationRequest) =>
     request<CopySimulationRecord>(`/wallets/${encodeURIComponent(address)}/copy-simulations`, {
       method: "POST",

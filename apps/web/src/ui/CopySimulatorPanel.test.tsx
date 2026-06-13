@@ -126,4 +126,26 @@ describe("CopySimulationResults", () => {
     expect(markup).toContain("Delay scenarios");
     expect(markup).toContain("at trade price");
   });
+
+  it("explains why nothing was copied when copiedTradeCount is 0 (Problem 2 / Option A)", () => {
+    const empty: CopySimulationRecord = {
+      ...record,
+      result: {
+        ...record.result,
+        ledger: [],
+        summary: {
+          ...record.result.summary,
+          copiedTradeCount: 0,
+          closedCopyTradeCount: 0,
+          missedTradeCount: 100,
+          missedReasonCounts: { BELOW_MIN_SIZE: 60, NOTHING_TO_REDUCE: 40 },
+          fillMethodCounts: {}
+        }
+      }
+    };
+    const markup = renderToStaticMarkup(<CopySimulationResults record={empty} />);
+
+    expect(markup).toContain("No trades matched");
+    expect(markup).toContain("minimum position size");
+  });
 });

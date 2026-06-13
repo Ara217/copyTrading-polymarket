@@ -170,6 +170,27 @@ describe("WalletsController", () => {
     );
   });
 
+  it("returns the per-wallet copy sizing suggestion", async () => {
+    const queue = { add: vi.fn() };
+    const walletAddress = "0x1111111111111111111111111111111111111111";
+    const suggestion = {
+      tradeCount: 4,
+      medianTradeValue: "20",
+      p25TradeValue: "10",
+      p75TradeValue: "30",
+      recommendedCopyPercentage: "0.1",
+      recommendedMinPositionSize: "1"
+    };
+    const service = {
+      resolveWalletIdentifier: vi.fn().mockResolvedValue(walletAddress),
+      getCopySizingSuggestion: vi.fn().mockResolvedValue(suggestion)
+    };
+    const controller = new WalletsController(service as never, queue as never);
+
+    await expect(controller.copySizingSuggestion(walletAddress)).resolves.toEqual({ data: suggestion });
+    expect(service.getCopySizingSuggestion).toHaveBeenCalledWith(walletAddress);
+  });
+
   it("lists copy simulations and fetches a simulation by id", async () => {
     const queue = { add: vi.fn() };
     const walletAddress = "0x1111111111111111111111111111111111111111";

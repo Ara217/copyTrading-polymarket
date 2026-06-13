@@ -8,6 +8,7 @@ import {
   calculateCopyReadiness,
   calculateWalletMetrics,
   reconstructPositions,
+  buildCopySizingSuggestion,
   simulateCopyTrading,
   simulateDelaySensitivity,
   type AnalyticsTrade,
@@ -26,6 +27,7 @@ import {
   type CopySimulationResult,
   type CopySimulationSettings,
   type CopySimulationSummary,
+  type CopySizingSuggestion,
   type DrawdownChartPoint,
   type OversizedTrade,
   type PnlChartPoint,
@@ -707,6 +709,26 @@ export class WalletsService {
       settings: result.settings,
       result
     };
+  }
+
+  async getCopySizingSuggestion(walletAddress: string): Promise<CopySizingSuggestion> {
+    const trades = await this.prisma.trade.findMany({
+      where: { walletAddress },
+      orderBy: { timestamp: "asc" }
+    });
+
+    return buildCopySizingSuggestion(
+      trades.map((trade) => ({
+        id: trade.id,
+        marketId: trade.marketId,
+        conditionId: trade.conditionId,
+        outcome: trade.outcome,
+        price: trade.price.toString(),
+        size: trade.size.toString(),
+        timestamp: trade.timestamp.toISOString(),
+        side: trade.side
+      }))
+    );
   }
 
   async listCopySimulations(walletAddress: string): Promise<CopySimulationListItem[]> {

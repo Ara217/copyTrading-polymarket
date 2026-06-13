@@ -149,6 +149,63 @@ export interface DelaySensitivityPoint {
   missedTradeCount: number;
 }
 
+export interface CopySizingSuggestion {
+  tradeCount: number;
+  medianTradeValue: string;
+  p25TradeValue: string;
+  p75TradeValue: string;
+  recommendedCopyPercentage: string;
+  recommendedMinPositionSize: string;
+}
+
+const DEFAULT_RECOMMENDED_COPY_PERCENTAGE = new Decimal("0.1");
+const DEFAULT_MIN_POSITION_SIZE = "5";
+
+/**
+ * Per-wallet sizing suggestion derived from the wallet's own trade-notional
+ * distribution. The recommended minimum is set so roughly the bottom quartile of
+ * copies still clears the floor, which prevents the "0 trades copied" result on
+ * wallets whose trades are small.
+ */
+export function buildCopySizingSuggestion(trades: AnalyticsTrade[]): CopySizingSuggestion {
+  if (trades.length === 0) {
+    return {
+      tradeCount: 0,
+      medianTradeValue: "0",
+      p25TradeValue: "0",
+      p75TradeValue: "0",
+      recommendedCopyPercentage: DEFAULT_RECOMMENDED_COPY_PERCENTAGE.toString(),
+      recommendedMinPositionSize: DEFAULT_MIN_POSITION_SIZE
+    };
+  }
+
+  const values = trades.map(tradeValue).sort((a, b) => a.cmp(b));
+  const p25 = percentile(values, 0.25);
+  const p50 = percentile(values, 0.5);
+  const p75 = percentile(values, 0.75);
+  const recommendedMin = Decimal.max(
+    new Decimal("0.01"),
+    p25.mul(DEFAULT_RECOMMENDED_COPY_PERCENTAGE)
+  ).toDecimalPlaces(2);
+
+  return {
+    tradeCount: trades.length,
+    medianTradeValue: money(p50),
+    p25TradeValue: money(p25),
+    p75TradeValue: money(p75),
+    recommendedCopyPercentage: DEFAULT_RECOMMENDED_COPY_PERCENTAGE.toString(),
+    recommendedMinPositionSize: recommendedMin.toString()
+  };
+}
+
+function percentile(sortedValues: Decimal[], p: number): Decimal {
+  if (sortedValues.length === 0) {
+    return new Decimal(0);
+  }
+  const rank = Math.max(1, Math.ceil(p * sortedValues.length));
+  return sortedValues[rank - 1]!;
+}
+
 const defaultSettings: CopySimulationSettings = {
   startingBalance: "1000",
   copyPercentage: "0.1",

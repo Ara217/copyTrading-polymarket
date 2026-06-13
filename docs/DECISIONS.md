@@ -94,3 +94,9 @@ These notes are the source of truth for future refreshes and continuation runs.
 - Currently used: `/book` (unresolved-position valuation) and `/prices-history` (V4 delayed-fill pricing, on-demand + Redis-cached).
 - Planned: `/book` depth + `/spread` for real liquidity scoring (V5) and a non-placeholder V4 liquidity filter; `/midpoint`/`/price`/`/spread` and their batch variants for live alert context (V7/V8).
 - Permanent boundary: CLOB order/authenticated endpoints (`/order`, signing, allowances) are never used. The platform is decision-support only — no order placement, key handling, or live execution. See `docs/ARCHITECTURE.md` ("CLOB API Usage And Roadmap") for the full endpoint map.
+
+## V4 Copy Sizing UX (Problem 2)
+
+- Default sizing (copy 10%, min $5) skips trades whose copied value falls below the floor; on small-size wallets this yields "0 trades copied" and the matching sells cascade to `NOTHING_TO_REDUCE`, which reads as breakage.
+- Mitigations: (A) the results panel shows an empty-state explanation when `copiedTradeCount === 0`, derived from the dominant blocking `missedReasonCounts` (ignoring `NOTHING_TO_REDUCE`, a downstream effect); (B) `GET /wallets/:address/copy-sizing-suggestion` exposes the wallet's trade-notional distribution and a recommended copy %/min size (min ≈ p25 trade value × copy %, so ~75% of trades clear the floor), surfaced via a "Use recommended settings" action.
+- Deferred (optional V4.x): balance-anchored sizing mode (fraction of the user's balance per copy rather than the trader's notional). More realistic, but not needed once A+B remove the confusion. Recorded in `docs/ROADMAP.md`.

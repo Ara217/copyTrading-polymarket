@@ -341,6 +341,15 @@ export interface CopySimulationResult {
   delaySensitivity: CopySimulationDelaySensitivityPoint[];
 }
 
+export interface CopySizingSuggestion {
+  tradeCount: number;
+  medianTradeValue: string;
+  p25TradeValue: string;
+  p75TradeValue: string;
+  recommendedCopyPercentage: string;
+  recommendedMinPositionSize: string;
+}
+
 export interface CopySimulationRecord {
   id: string;
   walletAddress: string;

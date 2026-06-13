@@ -141,6 +141,24 @@ describe("WalletsService", () => {
     );
   });
 
+  it("derives a copy sizing suggestion from the wallet's stored trades", async () => {
+    const tradeRows = [
+      { marketId: "c1", conditionId: "c1", outcome: "Yes", price: "0.10", size: "100", side: "buy", timestamp: new Date("2025-01-01T00:00:00.000Z") },
+      { marketId: "c1", conditionId: "c1", outcome: "Yes", price: "0.20", size: "100", side: "buy", timestamp: new Date("2025-01-02T00:00:00.000Z") },
+      { marketId: "c1", conditionId: "c1", outcome: "Yes", price: "0.30", size: "100", side: "buy", timestamp: new Date("2025-01-03T00:00:00.000Z") },
+      { marketId: "c1", conditionId: "c1", outcome: "Yes", price: "0.40", size: "100", side: "buy", timestamp: new Date("2025-01-04T00:00:00.000Z") }
+    ];
+    const prisma = { trade: { findMany: vi.fn().mockResolvedValue(tradeRows) } };
+    const service = new WalletsService(prisma as never, {} as never, {} as never);
+
+    const suggestion = await service.getCopySizingSuggestion(walletAddress);
+
+    expect(suggestion.tradeCount).toBe(4);
+    expect(suggestion.medianTradeValue).toBe("20");
+    expect(suggestion.recommendedMinPositionSize).toBe("1");
+    expect(suggestion.recommendedCopyPercentage).toBe("0.1");
+  });
+
   it("rejects simulations for wallets with no synced trades", async () => {
     const prisma = {
       trade: { findMany: vi.fn().mockResolvedValue([]) },

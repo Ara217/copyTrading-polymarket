@@ -261,6 +261,21 @@ type OversizedTrade = {
 - `oversizedConfig`: `{ oversizedThreshold, topPercent, relativeMultiplier }`, default `null`
 - `drawdownStopPercent`: stop opening positions after this drawdown fraction of peak equity, `(0, 1]`, default `null`
 
+## GET `/wallets/:address/copy-sizing-suggestion`
+
+Returns a per-wallet copy-sizing suggestion derived from the wallet's own trade-notional distribution. The UI uses it to pre-fill sensible defaults (via "Use recommended settings") so the simulator does not return "0 trades copied" on wallets whose trades are small.
+
+```ts
+type CopySizingSuggestion = {
+  tradeCount: number
+  medianTradeValue: string
+  p25TradeValue: string
+  p75TradeValue: string
+  recommendedCopyPercentage: string   // e.g. "0.1"
+  recommendedMinPositionSize: string  // ~p25 trade value * copy %, so most trades clear the floor
+}
+```
+
 ## POST `/wallets/:address/copy-simulations`
 
 Runs a historical copy-trading simulation against the stored trade history, persists it, and returns the record. Simulations never place orders or touch funds.

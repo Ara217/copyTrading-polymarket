@@ -109,6 +109,11 @@ export class WalletsController {
     return success(await this.walletsService.runCopySimulation(walletAddress, settings));
   }
 
+  @Get(":address/copy-sizing-suggestion")
+  async copySizingSuggestion(@Param("address") rawAddress: string) {
+    return success(await this.walletsService.getCopySizingSuggestion(await this.resolveIdentifier(rawAddress)));
+  }
+
   @Get(":address/copy-simulations")
   async listCopySimulations(@Param("address") rawAddress: string) {
     return success(await this.walletsService.listCopySimulations(await this.resolveIdentifier(rawAddress)));

@@ -42,6 +42,8 @@ V4 replays historical wallet actions as a manual-copy strategy with configurable
 
 CLOB usage: delayed fills are priced from `/prices-history` (on-demand + Redis-cached). Optional follow-up (V4.x): replace the placeholder liquidity filter with real `/book`-depth slippage modeling. See `docs/ARCHITECTURE.md` ("CLOB API Usage And Roadmap").
 
+Sizing UX shipped: the simulator surfaces a per-wallet recommended copy %/min size (`GET /wallets/:address/copy-sizing-suggestion`) and an empty-state explanation when no trades match. Optional follow-up (V4.x): a balance-anchored sizing mode — size each copy as a fraction of the user's own balance rather than the trader's absolute notional. This is a more realistic copy model and sidesteps small-size traders entirely; deferred because the recommended-defaults + empty-state changes already prevent the "0 copied" confusion.
+
 ## Version 5: Copyability Ranking
 
 Status: Next target

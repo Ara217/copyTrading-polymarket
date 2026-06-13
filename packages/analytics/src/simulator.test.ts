@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildCopySizingSuggestion,
   interpolatePrice,
   simulateCopyTrading,
   simulateDelaySensitivity,
@@ -295,6 +296,33 @@ describe("action and market filters", () => {
       "NOTHING_TO_REDUCE",
       "NOTHING_TO_REDUCE"
     ]);
+  });
+});
+
+describe("copy sizing suggestion", () => {
+  it("recommends a per-wallet minimum that lets most trades clear the floor", () => {
+    const trades = [
+      trade({ id: "1", price: "0.10", size: "100", timestamp: "2025-01-01T00:00:00.000Z" }), // 10
+      trade({ id: "2", price: "0.20", size: "100", timestamp: "2025-01-02T00:00:00.000Z" }), // 20
+      trade({ id: "3", price: "0.30", size: "100", timestamp: "2025-01-03T00:00:00.000Z" }), // 30
+      trade({ id: "4", price: "0.40", size: "100", timestamp: "2025-01-04T00:00:00.000Z" }) // 40
+    ];
+    const suggestion = buildCopySizingSuggestion(trades);
+
+    expect(suggestion.tradeCount).toBe(4);
+    expect(suggestion.medianTradeValue).toBe("20");
+    expect(suggestion.p25TradeValue).toBe("10");
+    expect(suggestion.p75TradeValue).toBe("30");
+    expect(suggestion.recommendedCopyPercentage).toBe("0.1");
+    // p25 (10) * 10% copy => $1 floor, so ~75% of trades clear it
+    expect(suggestion.recommendedMinPositionSize).toBe("1");
+  });
+
+  it("returns safe defaults for an empty trade set", () => {
+    const suggestion = buildCopySizingSuggestion([]);
+    expect(suggestion.tradeCount).toBe(0);
+    expect(suggestion.recommendedMinPositionSize).toBe("5");
+    expect(suggestion.recommendedCopyPercentage).toBe("0.1");
   });
 });
 
