@@ -57,6 +57,8 @@ export class DataClient {
     }
     const trade = parsed.data;
     const conditionId = trade.conditionId ?? trade.condition_id ?? trade.market ?? trade.marketId ?? "";
+    const rawTokenId = trade.asset ?? trade.asset_id ?? trade.tokenId ?? trade.token_id ?? null;
+    const tokenId = rawTokenId === null || rawTokenId === undefined ? null : String(rawTokenId);
     if (!conditionId) {
       return [];
     }
@@ -75,6 +77,7 @@ export class DataClient {
         walletAddress,
         marketId: conditionId,
         conditionId,
+        tokenId,
         outcome: trade.outcome,
         price: price.toString(),
         size: size.toString(),

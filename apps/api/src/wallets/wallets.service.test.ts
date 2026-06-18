@@ -205,6 +205,7 @@ describe("WalletsService", () => {
       walletAddress,
       marketId: "condition-1",
       conditionId: "condition-1",
+      tokenId: "token-1",
       outcome: "Yes",
       price: "0.5",
       size: "10",

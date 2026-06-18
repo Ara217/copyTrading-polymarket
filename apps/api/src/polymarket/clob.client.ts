@@ -8,6 +8,24 @@ interface OrderBookResponse {
   asks?: Array<{ price: string; size: string }>;
 }
 
+interface ClobMarketResponse {
+  closed?: boolean;
+  archived?: boolean;
+  accepting_orders?: boolean;
+  tokens?: Array<{
+    token_id: string;
+    outcome: string;
+    price: number | string;
+    winner: boolean;
+  }>;
+}
+
+export interface ClobMarketResolution {
+  closed: boolean;
+  winningOutcome: string | null;
+  outcomes: Array<{ outcome: string; price: string; winner: boolean }>;
+}
+
 interface PricesHistoryResponse {
   history?: Array<{ t: number; p: number }>;
 }
@@ -78,6 +96,40 @@ export class ClobClient {
         return { marketId, outcome, price: bestAsk.toString() };
       }
       return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Authoritative market state. Polymarket's CLOB exposes `closed` and per-token
+   * `winner`/`price` immediately on settlement — often hours before Gamma's
+   * `markets` endpoint reflects the same state. Used to mark unrealized PnL on
+   * settled markets when `/book` is empty.
+   */
+  async getMarketResolution(conditionId: string): Promise<ClobMarketResolution | null> {
+    try {
+      const url = new URL(`/markets/${conditionId}`, this.baseUrl);
+      const response = await fetch(url, { headers: { accept: "application/json" } });
+      if (!response.ok) {
+        return null;
+      }
+      const body = (await response.json()) as ClobMarketResponse;
+      const tokens = body.tokens ?? [];
+      if (tokens.length === 0) {
+        return null;
+      }
+      const outcomes = tokens.map((token) => ({
+        outcome: token.outcome,
+        price: String(token.price ?? 0),
+        winner: Boolean(token.winner)
+      }));
+      const winningOutcome = outcomes.find((o) => o.winner)?.outcome ?? null;
+      return {
+        closed: Boolean(body.closed),
+        winningOutcome,
+        outcomes
+      };
     } catch {
       return null;
     }

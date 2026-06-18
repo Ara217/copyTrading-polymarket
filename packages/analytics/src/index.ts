@@ -1049,6 +1049,16 @@ function selectTradeHighlight(results: ClosedTradeResult[], mode: "best" | "wors
     return null;
   }
 
+  // "Best" must be a winner; "Worst" must be a loser. Otherwise a wallet with a
+  // single closed trade would show the same row in both cards, and a wallet with
+  // only winners (or only losers) would mislabel a profitable trade as "Worst".
+  if (mode === "best" && !selected.pnl.gt(0)) {
+    return null;
+  }
+  if (mode === "worst" && !selected.pnl.lt(0)) {
+    return null;
+  }
+
   return {
     tradeId: selected.trade.id,
     marketId: selected.trade.marketId,

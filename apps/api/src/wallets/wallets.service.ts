@@ -84,6 +84,25 @@ export class WalletsService {
       trades
     );
     const priceSnapshots = await this.polymarket.getPriceSnapshots(markets, trades);
+    // Back-merge CLOB-confirmed resolution into the markets we persist. gamma sometimes
+    // lags hours behind settlement; getPriceSnapshots probes CLOB /markets/<id> for the
+    // authoritative state and we propagate it so Position.market.resolved reflects truth.
+    const resolutionByConditionId = new Map<string, { resolved: boolean; winningOutcome: string | null }>();
+    for (const snapshot of priceSnapshots) {
+      if (snapshot.resolved) {
+        resolutionByConditionId.set(snapshot.marketId, {
+          resolved: true,
+          winningOutcome: snapshot.winningOutcome ?? null
+        });
+      }
+    }
+    for (const market of markets) {
+      const resolution = resolutionByConditionId.get(market.conditionId);
+      if (resolution && !market.resolved) {
+        market.resolved = true;
+        market.winningOutcome = market.winningOutcome ?? resolution.winningOutcome;
+      }
+    }
     const analyticsTrades = this.toAnalyticsTrades(trades);
     const positions = reconstructPositions(analyticsTrades, priceSnapshots);
     const metrics = calculateWalletMetrics(analyticsTrades, positions);
@@ -134,6 +153,7 @@ export class WalletsService {
             walletAddress,
             marketId: trade.marketId,
             conditionId: trade.conditionId,
+            tokenId: trade.tokenId,
             outcome: trade.outcome,
             price: new Prisma.Decimal(trade.price),
             size: new Prisma.Decimal(trade.size),
@@ -399,7 +419,9 @@ export class WalletsService {
           unrealizedPnl: position.unrealizedPnl.toString(),
           totalPnl: position.totalPnl.toString(),
           confidenceScore: position.confidenceScore,
-          lastTradeAt: lastTradeAt?.toISOString() ?? null
+          lastTradeAt: lastTradeAt?.toISOString() ?? null,
+          marketResolved: position.market.resolved,
+          winningOutcome: position.market.winningOutcome
         };
       })
       .sort((a, b) => {
@@ -567,13 +589,13 @@ export class WalletsService {
   }
 
   private async buildPriceHistory(
-    trades: Array<{ marketId: string; outcome: string; timestamp: Date; rawJson: Prisma.JsonValue }>
+    trades: Array<{ marketId: string; outcome: string; timestamp: Date; tokenId: string | null; rawJson: Prisma.JsonValue }>
   ): Promise<CopyPriceHistorySeries[]> {
-    // One distinct (market, outcome) -> token spec, keyed off the asset id we already
-    // store in each trade's rawJson. Most-recent markets first, capped.
+    // One distinct (market, outcome) -> token spec, keyed off the trade's tokenId
+    // (falls back to rawJson.asset for rows persisted before V5 backfill). Most-recent markets first, capped.
     const specByKey = new Map<string, { marketId: string; outcome: string; token: string; lastTradeMs: number }>();
     for (const trade of trades) {
-      const asset = this.extractAssetId(trade.rawJson);
+      const asset = trade.tokenId ?? this.extractAssetId(trade.rawJson);
       if (!asset) {
         continue;
       }

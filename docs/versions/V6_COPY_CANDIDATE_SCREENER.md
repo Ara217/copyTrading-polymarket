@@ -28,6 +28,15 @@ Support filters for:
 - Exclude high drawdown wallets.
 - Exclude inactive wallets.
 
+V5 wired `/positions` into the refresh pipeline; V6 exposes the new dimensions as filter primitives:
+
+- Exposed to event (filter by `eventId` or `eventSlug` — e.g. "wallets active in the 2026 World Cup").
+- Holds neg-risk positions (`negativeRisk: true` on any current position).
+- Has redeemable position (`redeemable: true` — surfaces wallets sitting on uncashed winnings).
+- Has mergeable position (`mergeable: true` — wallets carrying offsetting opposite-side shares).
+- Current-value of open exposure greater than X (sum of `currentValue` across open positions).
+- Number of events held (distinct `eventId` count, complements market count).
+
 ## Backend Scope
 
 Add filter query support over persisted wallet metrics, readiness, simulator summaries, and ranking data.

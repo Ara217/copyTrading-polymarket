@@ -9,6 +9,8 @@ interface TradesTableProps {
   totalTradeCount?: number;
 }
 
+const ROW_TINT_THRESHOLD = 1; // dollars
+
 export function TradesTable({
   trades,
   syncedAt,
@@ -20,68 +22,99 @@ export function TradesTable({
     : `${trades.length} loaded, API limit 500`;
 
   return (
-    <section className="flex min-h-[520px] min-w-0 flex-col rounded-md border border-line bg-white">
+    <section className="flex min-h-[520px] min-w-0 flex-col rounded-lg border border-line bg-white">
       <SectionHeader
         title="Trade History"
-        description="Normalized trade rows enriched by the backend with side, position effect, realized PnL, and result. Buy rows stay Open until a sell closes or reduces the position."
+        description="Normalized trade rows enriched with side, position effect, realized PnL, and result. Buy rows stay Open until a sell closes or reduces the position."
         aside={aside}
       />
       <div className="min-h-0 flex-1 overflow-auto">
-        <table className="min-w-[1260px] w-full text-left text-sm">
-          <thead className="sticky top-0 bg-panel text-xs uppercase tracking-wide text-slate-500">
+        <table className="w-full text-left text-sm">
+          <thead className="sticky top-0 z-10 bg-panel text-[11px] uppercase tracking-wide text-muted">
             <tr>
-              <th className="w-[150px] px-4 py-3 font-medium">Timestamp</th>
-              <th className="w-[28%] px-3 py-3 font-medium">Market</th>
-              <th className="w-[140px] px-3 py-3 font-medium">Outcome</th>
-              <th className="w-[80px] px-3 py-3 font-medium">Side</th>
-              <th className="w-[96px] px-3 py-3 font-medium">Effect</th>
-              <th className="w-[92px] px-3 py-3 font-medium">Result</th>
-              <th className="px-3 py-3 text-right font-medium">Price</th>
-              <th className="px-3 py-3 text-right font-medium">Size</th>
-              <th className="px-3 py-3 text-right font-medium">Value</th>
-              <th className="px-3 py-3 text-right font-medium">Realized</th>
-              <th className="px-3 py-3 text-right font-medium">Remain</th>
-              <th className="w-[160px] px-3 py-3 font-medium">Transaction</th>
+              <th className="w-[150px] py-2.5 pl-4 pr-3 font-medium">When</th>
+              <th className="w-[32%] px-3 py-2.5 font-medium">Market</th>
+              <th className="w-[88px] px-3 py-2.5 font-medium">Outcome</th>
+              <th className="w-[120px] px-3 py-2.5 font-medium">
+                Side <span className="font-normal normal-case text-muted/70">/ Effect</span>
+              </th>
+              <th className="w-[80px] px-3 py-2.5 font-medium">Result</th>
+              <th className="px-3 py-2.5 text-right font-medium">
+                Price <span className="font-normal normal-case text-muted/70">/ Size</span>
+              </th>
+              <th className="px-3 py-2.5 text-right font-medium">
+                Value <span className="font-normal normal-case text-muted/70">/ Realized</span>
+              </th>
+              <th className="px-3 py-2.5 text-right font-medium">Remain</th>
+              <th className="w-[120px] py-2.5 pl-3 pr-4 font-medium">Tx</th>
             </tr>
           </thead>
           <tbody>
-            {trades.map((trade) => (
-              <tr key={trade.id} className="border-t border-line align-top">
-                <td className="px-4 py-3 tabular-nums">{formatDateTime(trade.timestamp)}</td>
-                <td className="max-w-[520px] px-3 py-3 leading-5">
-                  <div className="flex items-start gap-2">
-                    <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${resultDotClass(trade.result)}`} />
-                    <span>{trade.marketTitle ?? trade.conditionId}</span>
-                  </div>
-                </td>
-                <td className="px-3 py-3 leading-5">{trade.outcome}</td>
-                <td className="px-3 py-3">
-                  <Badge label={trade.side.toUpperCase()} tone={trade.side === "buy" ? "neutral" : "signal"} />
-                </td>
-                <td className="px-3 py-3">
-                  <Badge label={trade.positionEffect} tone={trade.positionEffect === "close" ? "signal" : "neutral"} />
-                </td>
-                <td className="px-3 py-3">
-                  <Badge label={trade.result} tone={resultTone(trade.result)} />
-                </td>
-                <td className="px-3 py-3 text-right tabular-nums">{formatAmount(trade.price, "price")}</td>
-                <td className="px-3 py-3 text-right tabular-nums">{formatAmount(trade.size, "shares")}</td>
-                <td className="px-3 py-3 text-right tabular-nums">{formatAmount(trade.value, "usd")}</td>
-                <td
-                  className={`px-3 py-3 text-right tabular-nums ${
-                    Number(trade.realizedPnl) > 0 ? "text-profit" : Number(trade.realizedPnl) < 0 ? "text-loss" : ""
-                  }`}
+            {trades.map((trade) => {
+              const tone = resultTone(trade.result);
+              const realizedNum = Number(trade.realizedPnl);
+              const tintRow = trade.result !== "open" && Math.abs(realizedNum) >= ROW_TINT_THRESHOLD;
+
+              return (
+                <tr
+                  key={trade.id}
+                  className={[
+                    "border-t border-line align-middle transition-colors hover:bg-panel",
+                    tintRow ? (tone === "profit" ? "bg-profit-soft" : tone === "loss" ? "bg-loss-soft" : "") : ""
+                  ].join(" ")}
                 >
-                  {formatAmount(trade.realizedPnl, "usd")}
-                </td>
-                <td className="px-3 py-3 text-right tabular-nums">{formatAmount(trade.remainingShares, "shares")}</td>
-                <td className="break-all px-3 py-3 font-mono text-xs text-slate-600">{trade.transactionHash ?? "-"}</td>
-              </tr>
-            ))}
+                  <td
+                    className={[
+                      "py-2.5 pl-4 pr-3 text-xs tabular-nums text-muted border-l-[3px]",
+                      tone === "profit"
+                        ? "border-profit-edge"
+                        : tone === "loss"
+                          ? "border-loss-edge"
+                          : tone === "signal"
+                            ? "border-signal/40"
+                            : "border-transparent"
+                    ].join(" ")}
+                  >
+                    {formatDateTime(trade.timestamp)}
+                  </td>
+                  <td className="max-w-[520px] px-3 py-2.5 text-sm leading-snug text-ink">
+                    {trade.marketTitle ?? trade.conditionId}
+                  </td>
+                  <td className="px-3 py-2.5 text-sm">{trade.outcome}</td>
+                  <td className="px-3 py-2.5">
+                    <SideBadge side={trade.side} />
+                    <div className="mt-0.5 text-[11px] capitalize text-muted">{trade.positionEffect}</div>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <ResultBadge result={trade.result} />
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    <div className="text-sm text-ink">{formatAmount(trade.price, "price")}</div>
+                    <div className="mt-0.5 text-[11px] text-muted">{formatAmount(trade.size, "shares")}</div>
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    <div className="text-sm text-ink">{formatAmount(trade.value, "usd")}</div>
+                    <div
+                      className={`mt-0.5 text-[11px] font-medium ${
+                        realizedNum > 0 ? "text-profit" : realizedNum < 0 ? "text-loss" : "text-muted"
+                      }`}
+                    >
+                      {formatAmount(trade.realizedPnl, "usd")}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-sm text-muted">
+                    {formatAmount(trade.remainingShares, "shares")}
+                  </td>
+                  <td className="break-all py-2.5 pl-3 pr-4 font-mono text-[11px] text-muted">
+                    {trade.transactionHash ?? "—"}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
         {trades.length === 0 ? (
-          <div className="px-4 py-10 text-center text-sm text-slate-500">
+          <div className="px-4 py-10 text-center text-sm text-muted">
             {syncedAt ? "Synced, but Polymarket returned no trades for this wallet." : "No trades loaded"}
           </div>
         ) : null}
@@ -90,33 +123,41 @@ export function TradesTable({
   );
 }
 
-type BadgeTone = "profit" | "loss" | "signal" | "neutral";
-
-function Badge({ label, tone }: { label: string; tone: BadgeTone }) {
+function SideBadge({ side }: { side: string }) {
+  const isBuy = side === "buy";
   return (
-    <span className={`rounded-md px-2 py-1 text-xs font-medium capitalize ${badgeClass(tone)}`}>
-      {label}
+    <span
+      className={
+        isBuy
+          ? "rounded-sm bg-signal-soft px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-signal"
+          : "rounded-sm bg-panel px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-ink"
+      }
+    >
+      {side}
     </span>
   );
 }
 
-function resultTone(result: TradeRow["result"]): BadgeTone {
+function ResultBadge({ result }: { result: TradeRow["result"] }) {
+  const tone = resultTone(result);
+  const cls =
+    tone === "profit"
+      ? "bg-profit-soft text-profit"
+      : tone === "loss"
+        ? "bg-loss-soft text-loss"
+        : tone === "signal"
+          ? "bg-signal-soft text-signal"
+          : "bg-panel text-muted";
+  return (
+    <span className={`inline-block rounded-sm px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${cls}`}>
+      {result}
+    </span>
+  );
+}
+
+function resultTone(result: TradeRow["result"]): "profit" | "loss" | "signal" | "neutral" {
   if (result === "win") return "profit";
   if (result === "loss") return "loss";
   if (result === "open") return "signal";
   return "neutral";
-}
-
-function resultDotClass(result: TradeRow["result"]): string {
-  if (result === "win") return "bg-profit";
-  if (result === "loss") return "bg-loss";
-  if (result === "open") return "bg-signal";
-  return "bg-slate-300";
-}
-
-function badgeClass(tone: BadgeTone): string {
-  if (tone === "profit") return "bg-green-50 text-profit";
-  if (tone === "loss") return "bg-red-50 text-loss";
-  if (tone === "signal") return "bg-blue-50 text-signal";
-  return "bg-panel text-slate-600";
 }

@@ -53,6 +53,7 @@ model Trade {
   walletAddress   String
   marketId        String
   conditionId     String
+  tokenId         String?
   outcome         String
   price           Decimal  @db.Decimal(18, 8)
   size            Decimal  @db.Decimal(18, 8)
@@ -70,6 +71,7 @@ model Trade {
   @@unique([walletAddress, transactionHash, conditionId, outcome, timestamp])
   @@index([walletAddress, timestamp])
   @@index([conditionId])
+  @@index([tokenId])
 }
 
 model Position {

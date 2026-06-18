@@ -248,6 +248,28 @@ describe("advanced performance analytics", () => {
       { date: "2025-01-04", wins: 0, losses: 1 }
     ]);
   });
+
+  it("omits Best Trade when no closed trade is profitable and Worst Trade when none is a loss", () => {
+    const lossOnlyTrades: AnalyticsTrade[] = [
+      { id: "buy", marketId: "m", conditionId: "m", outcome: "Yes", price: "0.5", size: "10", timestamp: "2025-01-01T00:00:00.000Z", side: "buy" },
+      { id: "sell", marketId: "m", conditionId: "m", outcome: "Yes", price: "0.1", size: "10", timestamp: "2025-01-02T00:00:00.000Z", side: "sell" }
+    ];
+    const positions = reconstructPositions(lossOnlyTrades, []);
+    const performance = calculateAdvancedPerformance(lossOnlyTrades, positions, [{ marketId: "m", resolved: false }]);
+
+    expect(performance.bestTrade).toBeNull();
+    expect(performance.worstTrade?.pnl).toBe("-4");
+
+    const winOnlyTrades: AnalyticsTrade[] = [
+      { id: "buy", marketId: "m", conditionId: "m", outcome: "Yes", price: "0.1", size: "10", timestamp: "2025-01-01T00:00:00.000Z", side: "buy" },
+      { id: "sell", marketId: "m", conditionId: "m", outcome: "Yes", price: "0.5", size: "10", timestamp: "2025-01-02T00:00:00.000Z", side: "sell" }
+    ];
+    const winPositions = reconstructPositions(winOnlyTrades, []);
+    const winPerformance = calculateAdvancedPerformance(winOnlyTrades, winPositions, [{ marketId: "m", resolved: false }]);
+
+    expect(winPerformance.bestTrade?.pnl).toBe("4");
+    expect(winPerformance.worstTrade).toBeNull();
+  });
 });
 
 describe("copy readiness analytics", () => {

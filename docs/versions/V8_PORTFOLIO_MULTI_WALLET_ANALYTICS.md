@@ -40,6 +40,7 @@ Calculate:
 - Shared outcomes.
 - Same-side exposure.
 - Opposite-side exposure.
+- Shared events (group by `eventId` persisted in V5; e.g. several watched wallets all betting on the same World Cup event even across different markets).
 - Category concentration.
 - Similarity score.
 - Copy action collision rate.
@@ -50,6 +51,7 @@ Estimate:
 
 - Aggregate open exposure.
 - Exposure by market.
+- Exposure by event (sum `currentValue` across positions grouped by `eventId`).
 - Exposure by category.
 - Exposure by copied wallet.
 - Max simulated drawdown across selected wallets.

@@ -38,6 +38,11 @@ These notes are the source of truth for future refreshes and continuation runs.
 - Unresolved markets use CLOB midpoint when available.
 - Fallback order is midpoint, best bid/ask depending on exit direction, last trade price, then last known stored price.
 - Resolved markets pay `1.00` for the winning outcome and `0.00` for losing outcomes.
+- CLOB `/book` is keyed by the ERC1155 **token id** (`asset` in the Data API trade payload), not the `conditionId`. We capture and persist `Trade.tokenId` at ingestion (`apps/api/prisma/migrations/20260615050000_trade_token_id`). Pre-V5 rows were one-shot backfilled from `rawJson.asset` via `apps/api/scripts/backfill-trade-token-id.ts`.
+- Snapshots returned from `PolymarketService.getPriceSnapshots` carry a `markedToMarket: boolean` flag. `true` means a live CLOB midpoint, a CLOB-confirmed resolution, or gamma-confirmed resolution drove the price; `false` means we fell back to the last fill (logged as a warning).
+- When CLOB `/book` returns no bids/asks AND gamma hasn't flagged the market as resolved, the snapshot pipeline probes CLOB `/markets/<conditionId>` (`ClobClient.getMarketResolution`). That endpoint exposes `closed` and per-token `winner`/`price` immediately on settlement — often hours before gamma. If `closed:true` with a winner, we mark the position at the resolution price (0 or 1) and set `markedToMarket=true`. This was added because gamma routinely lags CLOB on freshly-resolved markets (verified on `fifwc-nld-jpn-2026-06-14-nld` — gamma reported no resolution while CLOB already had `tokens[].winner=true`).
+- Making `unrealizedPnl` nullable end-to-end (DTOs, Prisma, UI) so the UI can render "—" for the residual fallback cases remains a deferred follow-up.
+- Past incident (V5 prep): the CLOB call previously passed `conditionId` as `token_id`, so every lookup returned no data and unrealized PnL silently fell back to entry price (always ≈ 0). Fixed by threading `tokenId` through `NormalizedTrade` and the snapshot path. Future analogous code MUST distinguish `marketId/conditionId` from `tokenId/asset`.
 
 ## Data Storage
 

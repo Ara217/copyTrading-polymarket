@@ -22,6 +22,7 @@ export interface NormalizedTrade {
   walletAddress: string;
   marketId: string;
   conditionId: string;
+  tokenId: string | null;
   outcome: string;
   price: string;
   size: string;
@@ -41,5 +42,6 @@ export interface MarketPriceSnapshot {
   price: string;
   resolved?: boolean;
   winningOutcome?: string | null;
+  markedToMarket?: boolean;
 }
 

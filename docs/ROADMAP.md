@@ -52,6 +52,8 @@ Detailed spec: `docs/versions/V5_COPYABILITY_RANKING.md`
 
 V5 ranks wallets by copyability, not generic fame or volume. Ranking combines simulated copy ROI, consistency, drawdown, recent performance, liquidity compatibility, activity, and data confidence.
 
+V5 also integrates Polymarket's `/positions` endpoint as the authoritative snapshot of "now" — closing the gap where redemptions, merges, and other non-CLOB closures left our reconstruction stale — and surfaces `eventId`, `negativeRisk`, `redeemable`, and `mergeable` for downstream consumers. See `docs/versions/V5_COPYABILITY_RANKING.md` → "Positions Snapshot As Source Of Truth".
+
 CLOB usage: `/book` depth and `/spread` can turn the V3 placeholder liquidity score into a real liquidity-compatibility input; `/prices-history` can sharpen drawdown/volatility from real prices rather than reconstructed values. See `docs/ARCHITECTURE.md` ("CLOB API Usage And Roadmap").
 
 ## Version 6: Copy Candidate Screener

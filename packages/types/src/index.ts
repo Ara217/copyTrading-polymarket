@@ -64,6 +64,8 @@ export interface PositionRow {
   totalPnl: string;
   confidenceScore: number;
   lastTradeAt: string | null;
+  marketResolved: boolean;
+  winningOutcome: string | null;
 }
 
 export interface PnlChartPoint {

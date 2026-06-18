@@ -32,6 +32,14 @@ Generate events for:
 - High-ranking wallet made oversized trade.
 - Multiple watched wallets entered same market/outcome.
 
+Sources for event detection:
+
+- `/trades` is the primary source — entries, adds, reduces, and CLOB-routed closes all emit there.
+- `/positions` snapshot diffs (introduced in V5) are the secondary source for closure paths that bypass CLOB:
+  - `position disappeared` (size dropped to 0, no matching SELL in `/trades`) → emit `redeemed` or `merged` depending on `mergeable`/settlement state on the prior snapshot.
+  - `position became redeemable` (`redeemable` flipped to `true`) → emit `claim available`.
+- The diff worker stores the previous snapshot per wallet so changes between refresh ticks are deterministic.
+
 ## Action Context
 
 Each action feed item should include:
@@ -85,6 +93,7 @@ Add models:
 - `AlertRule`
 - `AlertEvent`
 - `NotificationDelivery`
+- `WalletPositionsSnapshot` (prior `/positions` snapshot per wallet, used by the diff worker; stores `walletAddress`, `snapshotJson`, `capturedAt`).
 
 Recommended fields:
 
