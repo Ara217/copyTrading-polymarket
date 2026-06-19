@@ -46,7 +46,7 @@ Sizing UX shipped: the simulator surfaces a per-wallet recommended copy %/min si
 
 ## Version 5: Copyability Ranking
 
-Status: Next target
+Status: Done
 
 Detailed spec: `docs/versions/V5_COPYABILITY_RANKING.md`
 
@@ -58,7 +58,7 @@ CLOB usage: `/book` depth and `/spread` can turn the V3 placeholder liquidity sc
 
 ## Version 6: Copy Candidate Screener
 
-Status: Planned
+Status: Next target
 
 Detailed spec: `docs/versions/V6_COPY_CANDIDATE_SCREENER.md`
 

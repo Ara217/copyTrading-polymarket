@@ -15,6 +15,8 @@ describe("WalletsService", () => {
     position: { deleteMany: ReturnType<typeof vi.fn>; createMany: ReturnType<typeof vi.fn> };
     walletMetrics: { upsert: ReturnType<typeof vi.fn> };
     walletReadiness: { upsert: ReturnType<typeof vi.fn> };
+    walletRanking: { upsert: ReturnType<typeof vi.fn> };
+    copySimulation: { findFirst: ReturnType<typeof vi.fn> };
   };
 
   beforeEach(() => {
@@ -30,7 +32,9 @@ describe("WalletsService", () => {
         createMany: vi.fn().mockResolvedValue({ count: 1 })
       },
       walletMetrics: { upsert: vi.fn().mockResolvedValue(undefined) },
-      walletReadiness: { upsert: vi.fn().mockResolvedValue(undefined) }
+      walletReadiness: { upsert: vi.fn().mockResolvedValue(undefined) },
+      walletRanking: { upsert: vi.fn().mockResolvedValue(undefined) },
+      copySimulation: { findFirst: vi.fn().mockResolvedValue(null) }
     };
   });
 
@@ -42,6 +46,7 @@ describe("WalletsService", () => {
     };
     const polymarket = {
       getWalletTrades: vi.fn().mockResolvedValue([trade, { ...trade, id: "trade-duplicate" }]),
+      getWalletPositions: vi.fn().mockResolvedValue([]),
       getMarkets: vi.fn().mockResolvedValue([normalizedMarket()]),
       getPriceSnapshots: vi.fn().mockResolvedValue([])
     };
@@ -234,6 +239,8 @@ describe("WalletsService", () => {
       resolved: false,
       winningOutcome: null,
       lastKnownPrice: null,
+      eventId: null,
+      eventSlug: null,
       rawJson: {},
       metadata: {
         source: "gamma",

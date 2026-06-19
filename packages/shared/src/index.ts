@@ -8,6 +8,15 @@ export const evmAddressSchema = z
   .regex(/^0x[a-fA-F0-9]{40}$/, "Expected a valid EVM wallet address")
   .transform((value) => value.toLowerCase());
 
+export const polymarketUsernameSchema = z
+  .string()
+  .trim()
+  .regex(
+    /^[a-zA-Z0-9_.-]{1,32}$/,
+    "Expected a Polymarket username (1–32 chars; letters, digits, '_', '.', '-')"
+  )
+  .transform((value) => value.toLowerCase());
+
 export const polymarketProfileSlugSchema = z
   .string()
   .trim()
@@ -20,6 +29,22 @@ export const polymarketProfileSlugSchema = z
 export const paginationQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(500).default(100),
   offset: z.coerce.number().int().min(0).default(0)
+});
+
+export const rankingLeaderboardQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(25),
+  sort: z.enum(["finalScore", "simulatedRoiScore", "recentPerformanceScore"]).default("finalScore"),
+  classification: z
+    .enum([
+      "Prime copy candidate",
+      "Strong copy candidate",
+      "Watchlist candidate",
+      "High-risk candidate",
+      "Avoid copying"
+    ])
+    .optional(),
+  minScore: z.coerce.number().int().min(0).max(100).optional()
 });
 
 export const copyReadinessQuerySchema = z.object({
@@ -106,6 +131,37 @@ export const polymarketTradeSchema = z
   })
   .passthrough();
 
+export const polymarketPositionSchema = z
+  .object({
+    proxyWallet: z.string().optional().nullable(),
+    user: z.string().optional().nullable(),
+    asset: z.union([z.string(), z.number()]).optional().nullable(),
+    asset_id: z.union([z.string(), z.number()]).optional().nullable(),
+    conditionId: z.string().optional().nullable(),
+    condition_id: z.string().optional().nullable(),
+    outcome: z.string(),
+    outcomeIndex: z.union([z.number(), z.string()]).optional().nullable(),
+    size: z.union([z.string(), z.number()]),
+    avgPrice: z.union([z.string(), z.number()]).optional().nullable(),
+    curPrice: z.union([z.string(), z.number()]).optional().nullable(),
+    initialValue: z.union([z.string(), z.number()]).optional().nullable(),
+    currentValue: z.union([z.string(), z.number()]).optional().nullable(),
+    cashPnl: z.union([z.string(), z.number()]).optional().nullable(),
+    percentPnl: z.union([z.string(), z.number()]).optional().nullable(),
+    realizedPnl: z.union([z.string(), z.number()]).optional().nullable(),
+    redeemable: z.boolean().optional().nullable(),
+    mergeable: z.boolean().optional().nullable(),
+    negativeRisk: z.boolean().optional().nullable(),
+    negative_risk: z.boolean().optional().nullable(),
+    title: z.string().optional().nullable(),
+    slug: z.string().optional().nullable(),
+    eventId: z.union([z.string(), z.number()]).optional().nullable(),
+    event_id: z.union([z.string(), z.number()]).optional().nullable(),
+    eventSlug: z.string().optional().nullable(),
+    event_slug: z.string().optional().nullable()
+  })
+  .passthrough();
+
 export const polymarketMarketSchema = z
   .object({
     id: z.union([z.string(), z.number()]).optional(),
@@ -144,6 +200,15 @@ export function walletAddressFromProfileSlug(profileSlug: string): string {
 export function extractWalletFromText(input: string): string | null {
   const match = input.match(/0x[a-fA-F0-9]{40}/);
   return match ? parseWalletAddress(match[0]) : null;
+}
+
+/**
+ * True if the input passes the username schema. Use this to detect when an
+ * upstream lookup is required to resolve an address; the resolver itself lives
+ * in the backend (apps/api/src/polymarket/polymarket.service.ts).
+ */
+export function looksLikePolymarketUsername(input: unknown): boolean {
+  return polymarketUsernameSchema.safeParse(input).success;
 }
 
 export function extractWalletIdentifierFromText(input: string): string | null {

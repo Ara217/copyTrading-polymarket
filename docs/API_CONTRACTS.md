@@ -350,3 +350,100 @@ type CopySimulationListItem = {
 ## GET `/wallets/:address/copy-simulations/:id`
 
 Returns a single stored simulation as a full `CopySimulationRecord`. Responds `404` when the id does not belong to the wallet.
+
+## Wallet Identifier Resolution (V5)
+
+Any endpoint with a `:address` segment now accepts three identifier shapes; the backend normalizes them to a `0x...` address before any downstream work:
+
+1. Plain EVM address: `0xabc123...` (40 hex chars). Returned lowercased.
+2. Polymarket profile slug: `0x<address>-<timestamp>`. The address embedded in the slug is used directly.
+3. Polymarket username: e.g. `inaccuratestake`. Validated against `[a-zA-Z0-9_.-]{1,32}`, lowercased, then resolved by scraping `https://polymarket.com/profile/<username>` for the embedded `proxyWallet`. Resolved mappings are cached in Redis (24h TTL) and persisted on `Wallet.username`.
+
+Failure shape for an unresolvable username:
+
+```
+HTTP 404
+{
+  "error": {
+    "code": "WALLET_USERNAME_NOT_FOUND",
+    "message": "No Polymarket profile resolved for username '<name>'."
+  }
+}
+```
+
+Invalid identifiers (none of the three shapes matched) respond `400 BadRequestException` with `"Invalid wallet address, profile slug, or username"`.
+
+`WalletOverview` already exposes `username` and `profileImage` on the response payload; both populate from the resolved profile data.
+
+## GET `/wallets/:address/ranking` (V5)
+
+Returns the persisted copyability score for a single wallet.
+
+```ts
+type WalletRankingDto = {
+  walletAddress: string
+  finalScore: number  // 0–100
+  classification:
+    | "Prime copy candidate"
+    | "Strong copy candidate"
+    | "Watchlist candidate"
+    | "High-risk candidate"
+    | "Avoid copying"
+  components: {
+    simulatedRoi: { score: number | null, weight: number, detail?: string }
+    drawdown: ...
+    consistency: ...
+    recentPerformance: ...
+    liquidity: ...
+    dataConfidence: ...
+    activity: ...
+    delayTolerance: ...
+    oversizedRisk: ...
+    categoryFocus: ...
+  }
+  warnings: Array<{ code: string, severity: "info" | "warning" | "critical", message: string }>
+  weightsVersion: string  // e.g. "v5.1-2026-06-19"
+  profile: { copyBalance, maxPositionSize, delaySeconds, includedCategories }
+  updatedAt: string
+}
+```
+
+404 when `WalletRanking` has not been computed yet — the client should refresh the wallet first.
+
+Cache: 15 minutes in Redis (`ranking:wallet:<addr>:default`).
+
+## GET `/rankings/wallets` (V5)
+
+Paginated leaderboard of persisted rankings.
+
+Query schema (`rankingLeaderboardQuerySchema` in `@polyand/shared`):
+
+- `page` (int ≥ 1, default 1)
+- `pageSize` (int 1–100, default 25)
+- `sort` (`finalScore` | `simulatedRoiScore` | `recentPerformanceScore`, default `finalScore`) — always sorted descending
+- `classification` (optional, exact match)
+- `minScore` (optional, 0–100)
+
+Response data items extend `WalletRankingDto` with:
+
+- `totalPnl` (string)
+- `roi` (string)
+- `tradeCount` (number)
+- `lastSyncedAt` (string | null)
+
+Meta echoes `{ page, pageSize, total, sort }`. Cache: 15 minutes keyed by all query inputs.
+
+Reading the leaderboard also schedules a BullMQ stale-sweep: persisted rankings older than 6 hours have their wallet re-enqueued for `refreshWallet` (rate-limited per call). No client-visible behavior change beyond eventual freshness.
+
+## `PositionRow` extensions (V5)
+
+In addition to the V1–V4 fields, `PositionRow` now exposes:
+
+- `eventId: string | null` — Polymarket event grouping (gamma + `/positions` snapshot).
+- `eventSlug: string | null`
+- `negativeRisk: boolean | null` — neg-risk multi-outcome market flag.
+- `redeemable: boolean | null` — settled position with unclaimed payout.
+- `mergeable: boolean | null` — has offsetting opposite-side shares.
+- `curPrice: string | null` — preferred over CLOB `/book` when present.
+- `snapshotSource: "snapshot" | "reconstruction" | "snapshot-redemption" | null` — provenance flag.
+- `snapshotAt: string | null` — when the snapshot cross-check matched this row.

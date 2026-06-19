@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PolymarketService } from "./polymarket.service";
 import { ClobClient } from "./clob.client";
 import { NormalizedMarket, NormalizedTrade } from "./types";
@@ -35,6 +35,8 @@ function market(overrides: Partial<NormalizedMarket>): NormalizedMarket {
     resolved: false,
     winningOutcome: null,
     lastKnownPrice: null,
+    eventId: null,
+    eventSlug: null,
     rawJson: {},
     metadata: { source: "gamma", fetchedAt: "2026-06-15T00:00:00.000Z", adapterVersion: "polymarket-v1" },
     ...overrides
@@ -125,5 +127,40 @@ describe("PolymarketService.getPriceSnapshots", () => {
 
     expect(snapshots).toHaveLength(1);
     expect(snapshots[0].price).toBe("0.55");
+  });
+});
+
+describe("PolymarketService.resolveProfileIdentifier", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("scrapes the profile page and returns the embedded proxyWallet for a username", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () =>
+        `<html><script>{"proxyWallet":"0xA000000000000000000000000000000000000001","name":"inaccuratestake"}</script></html>`
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const service = new PolymarketService({} as never, {} as never, {} as never);
+
+    const result = await service.resolveProfileIdentifier("inaccuratestake");
+    expect(result?.address).toBe("0xa000000000000000000000000000000000000001");
+    expect(result?.username).toBe("inaccuratestake");
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/profile/inaccuratestake");
+  });
+
+  it("returns null when upstream HTML lacks a proxyWallet", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, text: async () => "<html>nope</html>" }));
+    const service = new PolymarketService({} as never, {} as never, {} as never);
+    expect(await service.resolveProfileIdentifier("inaccuratestake")).toBeNull();
+  });
+
+  it("rejects malformed usernames before the upstream fetch", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const service = new PolymarketService({} as never, {} as never, {} as never);
+    expect(await service.resolveProfileIdentifier("has space")).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

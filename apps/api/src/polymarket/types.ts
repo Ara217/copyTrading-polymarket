@@ -13,6 +13,8 @@ export interface NormalizedMarket {
   resolved: boolean;
   winningOutcome: string | null;
   lastKnownPrice: string | null;
+  eventId: string | null;
+  eventSlug: string | null;
   rawJson: unknown;
   metadata: RawMetadata;
 }
@@ -32,6 +34,30 @@ export interface NormalizedTrade {
   transactionHash: string | null;
   marketTitle: string | null;
   marketSlug: string | null;
+  rawJson: unknown;
+  metadata: RawMetadata;
+}
+
+export interface NormalizedPosition {
+  walletAddress: string;
+  conditionId: string;
+  tokenId: string | null;
+  outcome: string;
+  size: string;
+  avgPrice: string | null;
+  curPrice: string | null;
+  initialValue: string | null;
+  currentValue: string | null;
+  cashPnl: string | null;
+  percentPnl: string | null;
+  realizedPnl: string | null;
+  redeemable: boolean | null;
+  mergeable: boolean | null;
+  negativeRisk: boolean | null;
+  marketTitle: string | null;
+  marketSlug: string | null;
+  eventId: string | null;
+  eventSlug: string | null;
   rawJson: unknown;
   metadata: RawMetadata;
 }

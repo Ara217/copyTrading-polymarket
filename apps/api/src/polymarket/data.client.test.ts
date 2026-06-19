@@ -123,3 +123,101 @@ function trade(id: string) {
     side: "BUY"
   };
 }
+
+describe("DataClient.getWalletPositions", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("paginates /positions with sizeThreshold=0 until upstream page is not full", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [position("a"), position("b")]
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [position("c")]
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new DataClient({
+      get: (key: string) => {
+        if (key === "POLYMARKET_DATA_POSITION_PAGE_SIZE") return 2;
+        return undefined;
+      }
+    } as never);
+
+    const positions = await client.getWalletPositions("0xdbdd45150249e229eb4ca8aa48a30dca21faa5de");
+
+    expect(positions).toHaveLength(3);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const firstCallUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(firstCallUrl.pathname).toBe("/positions");
+    expect(firstCallUrl.searchParams.get("sizeThreshold")).toBe("0");
+    expect(firstCallUrl.searchParams.get("offset")).toBe("0");
+    expect(positions[0].redeemable).toBe(false);
+    expect(positions[0].eventId).toBe("event-a");
+  });
+
+  it("normalizes snake_case and Decimal-friendly numeric strings", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => [
+        {
+          proxyWallet: "0xabc",
+          conditionId: "0xcond1",
+          asset_id: "tok-1",
+          outcome: "Yes",
+          size: "12.5",
+          avgPrice: 0.42,
+          curPrice: "0.55",
+          currentValue: 6.875,
+          cashPnl: 1.5,
+          realizedPnl: "0",
+          negative_risk: true,
+          redeemable: false,
+          mergeable: false,
+          event_id: 7777,
+          event_slug: "world-cup-2026"
+        }
+      ]
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new DataClient({ get: () => undefined } as never);
+    const positions = await client.getWalletPositions("0xdbdd45150249e229eb4ca8aa48a30dca21faa5de");
+    expect(positions).toHaveLength(1);
+    const row = positions[0];
+    expect(row.conditionId).toBe("0xcond1");
+    expect(row.tokenId).toBe("tok-1");
+    expect(row.size).toBe("12.5");
+    expect(row.avgPrice).toBe("0.42");
+    expect(row.curPrice).toBe("0.55");
+    expect(row.currentValue).toBe("6.875");
+    expect(row.negativeRisk).toBe(true);
+    expect(row.eventId).toBe("7777");
+    expect(row.eventSlug).toBe("world-cup-2026");
+  });
+});
+
+function position(id: string) {
+  return {
+    proxyWallet: "0xdbdd45150249e229eb4ca8aa48a30dca21faa5de",
+    conditionId: `0xcond-${id}`,
+    asset: `tok-${id}`,
+    outcome: "Yes",
+    size: "10",
+    avgPrice: 0.5,
+    curPrice: 0.55,
+    currentValue: 5.5,
+    cashPnl: 0.5,
+    percentPnl: 0.1,
+    realizedPnl: 0,
+    redeemable: false,
+    mergeable: false,
+    negativeRisk: false,
+    eventId: `event-${id}`,
+    eventSlug: `slug-${id}`
+  };
+}

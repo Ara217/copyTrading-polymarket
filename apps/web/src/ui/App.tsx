@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ArrowLeft, BarChart3, ChevronDown, Moon, RefreshCw, Search, Sun } from "lucide-react";
 import type { PositionRow, TradeRow } from "@polyand/types";
 import { useWalletStore } from "../store/walletStore";
+import { CopyabilityCard } from "./CopyabilityCard";
 import { CopyReadinessPanel } from "./CopyReadinessPanel";
 import { CopySimulatorPanel } from "./CopySimulatorPanel";
 import { MetricGrid } from "./MetricGrid";
@@ -17,6 +18,7 @@ export function App() {
   const [darkMode, setDarkMode] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
     positions: false,
+    copyability: false,
     copyReadiness: true,
     copySimulator: true,
     performance: true,
@@ -31,6 +33,7 @@ export function App() {
     pnlChart,
     performance,
     copyReadiness,
+    ranking,
     drawdownChart,
     profitDistribution,
     winLossChart,
@@ -184,6 +187,18 @@ export function App() {
 
         {!selectedPosition ? (
           <>
+            <CollapsibleSection
+              title="Copyability"
+              description={
+                ranking
+                  ? `${ranking.classification}. Score ${ranking.finalScore}; ${ranking.warnings.length} warnings.`
+                  : "Copy-trading-specific 0–100 ranking. Refresh to compute."
+              }
+              collapsed={collapsedSections.copyability}
+              onToggle={() => toggleSection("copyability")}
+            >
+              <CopyabilityCard ranking={ranking} />
+            </CollapsibleSection>
             <CollapsibleSection
               title="Copy Readiness"
               description={

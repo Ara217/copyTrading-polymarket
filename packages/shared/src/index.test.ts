@@ -3,8 +3,10 @@ import {
   copySimulationSettingsSchema,
   extractWalletFromText,
   extractWalletIdentifierFromText,
+  looksLikePolymarketUsername,
   parseWalletAddress,
   parseWalletIdentifier,
+  polymarketUsernameSchema,
   walletAddressFromProfileSlug
 } from "./index";
 
@@ -111,5 +113,26 @@ describe("copy simulation settings validation", () => {
     expect(() => copySimulationSettingsSchema.parse({ delaySeconds: -5 })).toThrow();
     expect(() => copySimulationSettingsSchema.parse({ allowedActions: ["liquidate"] })).toThrow();
     expect(() => copySimulationSettingsSchema.parse({ drawdownStopPercent: 1.5 })).toThrow();
+  });
+});
+
+describe("polymarket username schema", () => {
+  it("accepts alphanumerics, dashes, dots, and underscores under 32 chars", () => {
+    expect(polymarketUsernameSchema.parse("inaccuratestake")).toBe("inaccuratestake");
+    expect(polymarketUsernameSchema.parse("Edge_Case-2026")).toBe("edge_case-2026");
+    expect(polymarketUsernameSchema.parse("a.b")).toBe("a.b");
+  });
+
+  it("rejects 0x addresses, urls, and over-length names", () => {
+    expect(() => polymarketUsernameSchema.parse("0xA000000000000000000000000000000000000001")).toThrow();
+    expect(() => polymarketUsernameSchema.parse("polymarket.com/profile/bob")).toThrow();
+    expect(() => polymarketUsernameSchema.parse("x".repeat(33))).toThrow();
+    expect(() => polymarketUsernameSchema.parse("has space")).toThrow();
+  });
+
+  it("looksLikePolymarketUsername distinguishes usernames from addresses", () => {
+    expect(looksLikePolymarketUsername("inaccuratestake")).toBe(true);
+    expect(looksLikePolymarketUsername("0xA000000000000000000000000000000000000001")).toBe(false);
+    expect(looksLikePolymarketUsername("0xa000000000000000000000000000000000000001-1773")).toBe(false);
   });
 });

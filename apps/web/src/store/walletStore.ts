@@ -9,6 +9,7 @@ import type {
   TradeRow,
   WalletOverview,
   WalletPerformance,
+  WalletRankingDto,
   WinLossChartPoint
 } from "@polyand/types";
 import { extractWalletIdentifierFromText, parseWalletIdentifier } from "@polyand/shared";
@@ -25,6 +26,7 @@ interface WalletState {
   drawdownChart: DrawdownChartPoint[];
   profitDistribution: ProfitDistributionBucket[];
   winLossChart: WinLossChartPoint[];
+  ranking: WalletRankingDto | null;
   refreshJob: RefreshWalletResponse | null;
   loading: boolean;
   error: string | null;
@@ -44,6 +46,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   drawdownChart: [],
   profitDistribution: [],
   winLossChart: [],
+  ranking: null,
   refreshJob: null,
   loading: false,
   error: null,
@@ -75,7 +78,8 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         copyReadiness,
         drawdownChart,
         profitDistribution,
-        winLossChart
+        winLossChart,
+        ranking
       ] =
         await Promise.all([
         api.getOverview(address),
@@ -86,9 +90,10 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         api.getCopyReadiness(address),
         api.getDrawdownChart(address),
         api.getProfitDistribution(address),
-        api.getWinLossChart(address)
+        api.getWinLossChart(address),
+        api.getWalletRanking(address).catch(() => null)
       ]);
-      set({ address, overview, trades, positions, pnlChart, performance, copyReadiness, drawdownChart, profitDistribution, winLossChart });
+      set({ address, overview, trades, positions, pnlChart, performance, copyReadiness, drawdownChart, profitDistribution, winLossChart, ranking });
       return address;
     } catch (error) {
       set({ error: error instanceof Error ? error.message : "Wallet load failed" });

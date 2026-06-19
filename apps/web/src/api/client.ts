@@ -14,6 +14,7 @@ import type {
   TradeRow,
   WalletOverview,
   WalletPerformance,
+  WalletRankingDto,
   WinLossChartPoint
 } from "@polyand/types";
 
@@ -85,5 +86,7 @@ export const api = {
   getCopySimulation: (address: string, id: string) =>
     request<CopySimulationRecord>(
       `/wallets/${encodeURIComponent(address)}/copy-simulations/${encodeURIComponent(id)}`
-    )
+    ),
+  getWalletRanking: (address: string) =>
+    request<WalletRankingDto>(`/wallets/${encodeURIComponent(address)}/ranking`)
 };

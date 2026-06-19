@@ -22,6 +22,7 @@ model Wallet {
   positions      Position[]
   metrics        WalletMetrics?
   readiness      WalletReadiness?
+  ranking        WalletRanking?
   simulations    CopySimulation[]
 }
 
@@ -35,6 +36,8 @@ model Market {
   resolved       Boolean    @default(false)
   winningOutcome String?
   lastKnownPrice Decimal?   @db.Decimal(18, 8)
+  eventId        String?
+  eventSlug      String?
   rawJson        Json?
   source         String?
   fetchedAt      DateTime?
@@ -46,6 +49,7 @@ model Market {
 
   @@index([slug])
   @@index([resolved])
+  @@index([eventId])
 }
 
 model Trade {
@@ -86,11 +90,22 @@ model Position {
   unrealizedPnl     Decimal  @db.Decimal(18, 8)
   totalPnl          Decimal  @db.Decimal(18, 8)
   confidenceScore   Int
+  eventId           String?
+  negativeRisk      Boolean?
+  redeemable        Boolean?
+  mergeable         Boolean?
+  curPrice          Decimal? @db.Decimal(18, 8)
+  currentValue      Decimal? @db.Decimal(18, 8)
+  cashPnl           Decimal? @db.Decimal(18, 8)
+  percentPnl        Decimal? @db.Decimal(18, 8)
+  snapshotSource    String?
+  snapshotAt        DateTime?
   wallet            Wallet   @relation(fields: [walletAddress], references: [address])
   market            Market   @relation(fields: [marketId], references: [conditionId])
 
   @@unique([walletAddress, marketId, outcome])
   @@index([walletAddress])
+  @@index([eventId])
 }
 
 model WalletMetrics {
@@ -137,6 +152,30 @@ model WalletReadiness {
   configJson                 Json
   updatedAt                  DateTime @updatedAt
   wallet                     Wallet   @relation(fields: [walletAddress], references: [address])
+}
+
+model WalletRanking {
+  id                       String   @id @default(cuid())
+  walletAddress            String   @unique
+  simulatedRoiScore        Int
+  drawdownScore            Int
+  consistencyScore         Int
+  recentPerformanceScore   Int
+  liquidityScore           Int
+  delayToleranceScore      Int
+  activityScore            Int
+  categoryFocusScore       Int
+  dataConfidenceScore      Int
+  oversizedRiskScore       Int
+  finalScore               Int
+  classification           String
+  warningsJson             Json
+  weightsVersion           String
+  inputProfileJson         Json
+  updatedAt                DateTime @updatedAt
+  wallet                   Wallet   @relation(fields: [walletAddress], references: [address])
+
+  @@index([finalScore])
 }
 
 model CopySimulation {

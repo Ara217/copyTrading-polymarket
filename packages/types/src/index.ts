@@ -66,6 +66,14 @@ export interface PositionRow {
   lastTradeAt: string | null;
   marketResolved: boolean;
   winningOutcome: string | null;
+  eventId: string | null;
+  eventSlug: string | null;
+  negativeRisk: boolean | null;
+  redeemable: boolean | null;
+  mergeable: boolean | null;
+  curPrice: string | null;
+  snapshotSource: "snapshot" | "reconstruction" | "snapshot-redemption" | null;
+  snapshotAt: string | null;
 }
 
 export interface PnlChartPoint {
@@ -366,6 +374,51 @@ export interface CopySimulationListItem {
   createdAt: string;
   settings: CopySimulationSettings;
   summary: CopySimulationSummary;
+}
+
+export interface WalletRankingComponentDto {
+  score: number | null;
+  weight: number;
+  detail?: string;
+}
+
+export interface WalletRankingDto {
+  walletAddress: string;
+  finalScore: number;
+  classification:
+    | "Prime copy candidate"
+    | "Strong copy candidate"
+    | "Watchlist candidate"
+    | "High-risk candidate"
+    | "Avoid copying";
+  components: {
+    simulatedRoi: WalletRankingComponentDto;
+    drawdown: WalletRankingComponentDto;
+    consistency: WalletRankingComponentDto;
+    recentPerformance: WalletRankingComponentDto;
+    liquidity: WalletRankingComponentDto;
+    dataConfidence: WalletRankingComponentDto;
+    activity: WalletRankingComponentDto;
+    delayTolerance: WalletRankingComponentDto;
+    oversizedRisk: WalletRankingComponentDto;
+    categoryFocus: WalletRankingComponentDto;
+  };
+  warnings: Array<{ code: string; severity: "info" | "warning" | "critical"; message: string }>;
+  weightsVersion: string;
+  profile: {
+    copyBalance: string;
+    maxPositionSize: string;
+    delaySeconds: number;
+    includedCategories: string[];
+  };
+  updatedAt: string;
+}
+
+export interface WalletRankingLeaderboardRow extends WalletRankingDto {
+  totalPnl: string;
+  roi: string;
+  tradeCount: number;
+  lastSyncedAt: string | null;
 }
 
 export interface ApiSuccess<T> {

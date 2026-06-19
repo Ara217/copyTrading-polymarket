@@ -27,9 +27,9 @@ Read in this order:
 - Done: `docs/versions/V2_PERFORMANCE_ANALYTICS.md`
 - Done: `docs/versions/V3_COPY_READINESS.md`
 - Done: `docs/versions/V4_COPY_TRADING_SIMULATOR.md`
-- Next target: `docs/versions/V5_COPYABILITY_RANKING.md`
+- Done: `docs/versions/V5_COPYABILITY_RANKING.md`
+- Next target: `docs/versions/V6_COPY_CANDIDATE_SCREENER.md`
 - Later modules:
-  - `docs/versions/V6_COPY_CANDIDATE_SCREENER.md`
   - `docs/versions/V7_COPY_ACTION_FEED_ALERTS.md`
   - `docs/versions/V8_PORTFOLIO_MULTI_WALLET_ANALYTICS.md`
 

@@ -43,6 +43,8 @@ export class GammaClient {
             resolved: false,
             winningOutcome: null,
             lastKnownPrice: null,
+            eventId: null,
+            eventSlug: null,
             rawJson: { conditionId },
             metadata: {
               source: "gamma",
@@ -72,6 +74,10 @@ export class GammaClient {
         return [];
       }
 
+      // Pull event grouping out of gamma when present; /positions snapshot back-fills any gaps later.
+      const rawObj = (item ?? {}) as Record<string, unknown>;
+      const eventId = this.pickEventId(rawObj);
+      const eventSlug = this.pickEventSlug(rawObj);
       return [
         {
           conditionId,
@@ -82,6 +88,8 @@ export class GammaClient {
           resolved: Boolean(market.resolved ?? market.closed ?? false),
           winningOutcome: market.winningOutcome ?? market.winning_outcome ?? null,
           lastKnownPrice: null,
+          eventId,
+          eventSlug,
           rawJson: item,
           metadata: {
             source: "gamma",
@@ -99,5 +107,29 @@ export class GammaClient {
       batches.push(conditionIds.slice(index, index + CONDITION_ID_BATCH_SIZE));
     }
     return batches;
+  }
+
+  private pickEventId(raw: Record<string, unknown>): string | null {
+    const direct = raw["eventId"] ?? raw["event_id"];
+    if (typeof direct === "string" && direct.length > 0) return direct;
+    if (typeof direct === "number") return String(direct);
+    const event = raw["event"];
+    if (event && typeof event === "object" && !Array.isArray(event)) {
+      const nested = (event as Record<string, unknown>)["id"];
+      if (typeof nested === "string" && nested.length > 0) return nested;
+      if (typeof nested === "number") return String(nested);
+    }
+    return null;
+  }
+
+  private pickEventSlug(raw: Record<string, unknown>): string | null {
+    const direct = raw["eventSlug"] ?? raw["event_slug"];
+    if (typeof direct === "string" && direct.length > 0) return direct;
+    const event = raw["event"];
+    if (event && typeof event === "object" && !Array.isArray(event)) {
+      const slug = (event as Record<string, unknown>)["slug"];
+      if (typeof slug === "string" && slug.length > 0) return slug;
+    }
+    return null;
   }
 }

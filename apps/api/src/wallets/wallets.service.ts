@@ -1,4 +1,6 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, NotFoundException, Optional } from "@nestjs/common";
+import { InjectQueue } from "@nestjs/bullmq";
+import type { Queue } from "bullmq";
 import { Prisma } from "@prisma/client";
 import {
   buildDrawdownChart,
@@ -7,15 +9,19 @@ import {
   calculateAdvancedPerformance,
   calculateCopyReadiness,
   calculateWalletMetrics,
+  computeWalletRanking,
   reconstructPositions,
   buildCopySizingSuggestion,
   simulateCopyTrading,
   simulateDelaySensitivity,
+  WEIGHTS_VERSION,
   type AnalyticsTrade,
   type CopyPriceHistorySeries,
   type CopyReadinessConfig,
   type CopySimulationInput,
-  type MarketPrice
+  type MarketPrice,
+  type RankingInputs,
+  type RankingResult
 } from "@polyand/analytics";
 import {
   type CategoryExposure,
@@ -43,29 +49,86 @@ import { CacheService } from "../cache/cache.service";
 import { PolymarketService } from "../polymarket/polymarket.service";
 import { NormalizedMarket, NormalizedTrade } from "../polymarket/types";
 import { PrismaService } from "../prisma/prisma.service";
+import { WALLET_SYNC_QUEUE } from "./wallets.constants";
 import {
+  looksLikePolymarketUsername,
   parseWalletAddress,
   polymarketProfileSlugSchema,
+  polymarketUsernameSchema,
   walletAddressFromProfileSlug,
   type ParsedCopySimulationSettings
 } from "@polyand/shared";
 import { inferMarketCategory } from "./market-category";
+import { mergeReconstructionWithSnapshot } from "./positions-snapshot";
 
 @Injectable()
 export class WalletsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly polymarket: PolymarketService,
-    private readonly cache: CacheService
+    private readonly cache: CacheService,
+    @Optional() @InjectQueue(WALLET_SYNC_QUEUE) private readonly walletSyncQueue?: Queue
   ) {}
 
   async resolveWalletIdentifier(identifier: string): Promise<string> {
+    const trimmed = String(identifier ?? "").trim();
+
+    // 1) Plain 0x... address.
     try {
-      return parseWalletAddress(identifier);
+      return parseWalletAddress(trimmed);
     } catch {
-      const profileSlug = polymarketProfileSlugSchema.parse(identifier);
-      return walletAddressFromProfileSlug(profileSlug);
+      // fall through
     }
+
+    // 2) Profile slug `0x...-<timestamp>` (embeds the address).
+    const slugParsed = polymarketProfileSlugSchema.safeParse(trimmed);
+    if (slugParsed.success) {
+      return walletAddressFromProfileSlug(slugParsed.data);
+    }
+
+    // 3) Username — must resolve via Polymarket's profile page; cache 24h.
+    if (looksLikePolymarketUsername(trimmed)) {
+      const username = polymarketUsernameSchema.parse(trimmed);
+      const cacheKey = this.usernameCacheKey(username);
+      const cached = await this.cache.getJson<string>(cacheKey);
+      if (cached) {
+        await this.persistWalletUsername(cached, username);
+        return cached;
+      }
+      const persisted = await this.prisma.wallet.findFirst({ where: { username } });
+      if (persisted?.address) {
+        await this.cache.setJson(cacheKey, persisted.address, 24 * 60 * 60);
+        return persisted.address;
+      }
+      const resolved = await this.polymarket.resolveProfileIdentifier(username);
+      if (!resolved?.address) {
+        throw new NotFoundException({ code: "WALLET_USERNAME_NOT_FOUND", message: `No Polymarket profile resolved for username '${username}'.` });
+      }
+      await this.cache.setJson(cacheKey, resolved.address, 24 * 60 * 60);
+      await this.persistWalletUsername(resolved.address, username);
+      return resolved.address;
+    }
+
+    // Nothing matched.
+    throw new Error("Invalid wallet identifier");
+  }
+
+  private usernameCacheKey(username: string): string {
+    return `username:resolve:${username}`;
+  }
+
+  private async persistWalletUsername(address: string, username: string): Promise<void> {
+    await this.prisma.wallet.upsert({
+      where: { address },
+      create: {
+        address,
+        username,
+        rawJson: { walletAddress: address },
+        source: "data",
+        adapterVersion: "polymarket-v1"
+      },
+      update: { username }
+    });
   }
 
   async recordSyncJob(id: string, walletAddress: string, status: string): Promise<void> {
@@ -104,7 +167,30 @@ export class WalletsService {
       }
     }
     const analyticsTrades = this.toAnalyticsTrades(trades);
-    const positions = reconstructPositions(analyticsTrades, priceSnapshots);
+    const reconstructed = reconstructPositions(analyticsTrades, priceSnapshots);
+
+    // V5: cross-check trade reconstruction against the authoritative /positions snapshot.
+    // Snapshot wins on divergence; missing rows are treated as redemptions/merges.
+    const snapshotAt = new Date();
+    const upstreamSnapshot = await this.polymarket.getWalletPositions(walletAddress).catch((error) => {
+      // Snapshot is advisory — if it fails, fall back to pure reconstruction so refresh still completes.
+      // eslint-disable-next-line no-console
+      console.warn(`positions.snapshot.failed walletAddress=${walletAddress} error=${(error as Error).message}`);
+      return [];
+    });
+    const merged = mergeReconstructionWithSnapshot({
+      walletAddress,
+      reconstructed,
+      snapshot: upstreamSnapshot,
+      markets,
+      priceSnapshots,
+      snapshotAt
+    });
+    const positions = merged.positions;
+    const enrichedMarkets = merged.markets;
+    markets.length = 0;
+    markets.push(...enrichedMarkets);
+
     const metrics = calculateWalletMetrics(analyticsTrades, positions);
     const performance = calculateAdvancedPerformance(
       analyticsTrades,
@@ -182,7 +268,17 @@ export class WalletsService {
             realizedPnl: new Prisma.Decimal(position.realizedPnl),
             unrealizedPnl: new Prisma.Decimal(position.unrealizedPnl),
             totalPnl: new Prisma.Decimal(position.totalPnl),
-            confidenceScore: position.confidenceScore
+            confidenceScore: position.confidenceScore,
+            eventId: position.eventId ?? null,
+            negativeRisk: position.negativeRisk ?? null,
+            redeemable: position.redeemable ?? null,
+            mergeable: position.mergeable ?? null,
+            curPrice: position.curPrice ? new Prisma.Decimal(position.curPrice) : null,
+            currentValue: position.currentValue ? new Prisma.Decimal(position.currentValue) : null,
+            cashPnl: position.cashPnl ? new Prisma.Decimal(position.cashPnl) : null,
+            percentPnl: position.percentPnl ? new Prisma.Decimal(position.percentPnl) : null,
+            snapshotSource: position.snapshotSource,
+            snapshotAt: position.snapshotMatchedAt ? new Date(position.snapshotMatchedAt) : null
           }))
         });
       }
@@ -233,6 +329,60 @@ export class WalletsService {
           worstTradeJson: this.jsonOrNull(performance.worstTrade),
           profitDistributionJson: performance.profitDistribution as unknown as Prisma.InputJsonValue,
           winLossChartJson: performance.winLossChart as unknown as Prisma.InputJsonValue
+        }
+      });
+
+      // V5: persist ranking. Uses the metrics/readiness we just computed and
+      // the most recent CopySimulation if one exists.
+      const latestSimulation = await tx.copySimulation.findFirst({
+        where: { walletAddress },
+        orderBy: { createdAt: "desc" }
+      });
+      const ranking = computeWalletRanking(this.buildRankingInputs({
+        performance,
+        readiness,
+        latestSimulationResultJson: latestSimulation?.resultJson ?? null,
+        positions,
+        snapshotChecked: merged.snapshotChecked,
+        tradeCount: metrics.tradeCount,
+        volume: metrics.volume
+      }));
+      await tx.walletRanking.upsert({
+        where: { walletAddress },
+        create: {
+          walletAddress,
+          simulatedRoiScore: ranking.components.simulatedRoi.score ?? 0,
+          drawdownScore: ranking.components.drawdown.score ?? 0,
+          consistencyScore: ranking.components.consistency.score ?? 0,
+          recentPerformanceScore: ranking.components.recentPerformance.score ?? 0,
+          liquidityScore: ranking.components.liquidity.score ?? 0,
+          delayToleranceScore: ranking.components.delayTolerance.score ?? 0,
+          activityScore: ranking.components.activity.score ?? 0,
+          categoryFocusScore: ranking.components.categoryFocus.score ?? 0,
+          dataConfidenceScore: ranking.components.dataConfidence.score ?? 0,
+          oversizedRiskScore: ranking.components.oversizedRisk.score ?? 0,
+          finalScore: ranking.finalScore,
+          classification: ranking.classification,
+          warningsJson: ranking.warnings as unknown as Prisma.InputJsonValue,
+          weightsVersion: WEIGHTS_VERSION,
+          inputProfileJson: ranking.profile as unknown as Prisma.InputJsonValue
+        },
+        update: {
+          simulatedRoiScore: ranking.components.simulatedRoi.score ?? 0,
+          drawdownScore: ranking.components.drawdown.score ?? 0,
+          consistencyScore: ranking.components.consistency.score ?? 0,
+          recentPerformanceScore: ranking.components.recentPerformance.score ?? 0,
+          liquidityScore: ranking.components.liquidity.score ?? 0,
+          delayToleranceScore: ranking.components.delayTolerance.score ?? 0,
+          activityScore: ranking.components.activity.score ?? 0,
+          categoryFocusScore: ranking.components.categoryFocus.score ?? 0,
+          dataConfidenceScore: ranking.components.dataConfidence.score ?? 0,
+          oversizedRiskScore: ranking.components.oversizedRisk.score ?? 0,
+          finalScore: ranking.finalScore,
+          classification: ranking.classification,
+          warningsJson: ranking.warnings as unknown as Prisma.InputJsonValue,
+          weightsVersion: WEIGHTS_VERSION,
+          inputProfileJson: ranking.profile as unknown as Prisma.InputJsonValue
         }
       });
 
@@ -398,10 +548,10 @@ export class WalletsService {
     return positions
       .map((position) => {
         const lastTradeAt = latestTradeByPosition.get(this.positionKey(position.marketId, position.outcome)) ?? null;
-        const currentValue = position.currentShares
-          .abs()
-          .mul(position.averageEntryPrice)
-          .plus(position.unrealizedPnl);
+        // Prefer the snapshot-persisted currentValue when present (already reflects upstream curPrice).
+        const currentValue = position.currentValue
+          ? position.currentValue
+          : position.currentShares.abs().mul(position.averageEntryPrice).plus(position.unrealizedPnl);
 
         return {
           id: position.id,
@@ -421,7 +571,15 @@ export class WalletsService {
           confidenceScore: position.confidenceScore,
           lastTradeAt: lastTradeAt?.toISOString() ?? null,
           marketResolved: position.market.resolved,
-          winningOutcome: position.market.winningOutcome
+          winningOutcome: position.market.winningOutcome,
+          eventId: position.eventId ?? position.market.eventId ?? null,
+          eventSlug: position.market.eventSlug ?? null,
+          negativeRisk: position.negativeRisk ?? null,
+          redeemable: position.redeemable ?? null,
+          mergeable: position.mergeable ?? null,
+          curPrice: position.curPrice?.toString() ?? null,
+          snapshotSource: (position.snapshotSource as PositionRow["snapshotSource"]) ?? null,
+          snapshotAt: position.snapshotAt?.toISOString() ?? null
         };
       })
       .sort((a, b) => {
@@ -785,12 +943,234 @@ export class WalletsService {
     };
   }
 
+  async getWalletRanking(walletAddress: string) {
+    const cacheKey = this.rankingCacheKey(walletAddress);
+    const cached = await this.cache.getJson(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    const row = await this.prisma.walletRanking.findUnique({ where: { walletAddress } });
+    if (!row) {
+      throw new NotFoundException("Wallet ranking has not been computed yet — refresh the wallet first.");
+    }
+    const payload = this.serializeRanking(row);
+    await this.cache.setJson(cacheKey, payload, 15 * 60);
+    return payload;
+  }
+
+  async listWalletRankings(query: {
+    page: number;
+    pageSize: number;
+    sort: "finalScore" | "simulatedRoiScore" | "recentPerformanceScore";
+    classification?: string;
+    minScore?: number;
+  }) {
+    const cacheKey = this.leaderboardCacheKey(query);
+    const cached = await this.cache.getJson<{ rows: unknown[]; total: number }>(cacheKey);
+    if (cached) {
+      this.scheduleStaleSweep().catch(() => undefined);
+      return cached;
+    }
+
+    const where: Prisma.WalletRankingWhereInput = {};
+    if (query.classification) where.classification = query.classification;
+    if (typeof query.minScore === "number") where.finalScore = { gte: query.minScore };
+
+    const [rows, total] = await Promise.all([
+      this.prisma.walletRanking.findMany({
+        where,
+        orderBy: { [query.sort]: "desc" },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        include: { wallet: { include: { metrics: true } } }
+      }),
+      this.prisma.walletRanking.count({ where })
+    ]);
+
+    const serialized = rows.map((row) => ({
+      ...this.serializeRanking(row),
+      totalPnl: row.wallet.metrics?.totalPnl.toString() ?? "0",
+      roi: row.wallet.metrics?.roi.toString() ?? "0",
+      tradeCount: row.wallet.metrics?.tradeCount ?? 0,
+      lastSyncedAt: row.wallet.lastSyncedAt?.toISOString() ?? null
+    }));
+    const payload = { rows: serialized, total };
+    await this.cache.setJson(cacheKey, payload, 15 * 60);
+    this.scheduleStaleSweep().catch(() => undefined);
+    return payload;
+  }
+
+  private rankingCacheKey(walletAddress: string): string {
+    return `ranking:wallet:${walletAddress}:default`;
+  }
+
+  private leaderboardCacheKey(query: {
+    page: number;
+    pageSize: number;
+    sort: string;
+    classification?: string;
+    minScore?: number;
+  }): string {
+    return `ranking:leaderboard:p=${query.page}:s=${query.pageSize}:o=${query.sort}:c=${query.classification ?? "*"}:m=${query.minScore ?? "*"}`;
+  }
+
+  private serializeRanking(row: {
+    walletAddress: string;
+    simulatedRoiScore: number;
+    drawdownScore: number;
+    consistencyScore: number;
+    recentPerformanceScore: number;
+    liquidityScore: number;
+    delayToleranceScore: number;
+    activityScore: number;
+    categoryFocusScore: number;
+    dataConfidenceScore: number;
+    oversizedRiskScore: number;
+    finalScore: number;
+    classification: string;
+    warningsJson: Prisma.JsonValue;
+    weightsVersion: string;
+    inputProfileJson: Prisma.JsonValue;
+    updatedAt: Date;
+  }) {
+    return {
+      walletAddress: row.walletAddress,
+      finalScore: row.finalScore,
+      classification: row.classification,
+      components: {
+        simulatedRoi: { score: row.simulatedRoiScore, weight: 22 },
+        drawdown: { score: row.drawdownScore, weight: 15 },
+        consistency: { score: row.consistencyScore, weight: 12 },
+        recentPerformance: { score: row.recentPerformanceScore, weight: 10 },
+        liquidity: { score: row.liquidityScore, weight: 10 },
+        dataConfidence: { score: row.dataConfidenceScore, weight: 8 },
+        activity: { score: row.activityScore, weight: 7 },
+        delayTolerance: { score: row.delayToleranceScore, weight: 6 },
+        oversizedRisk: { score: row.oversizedRiskScore, weight: 5 },
+        categoryFocus: { score: row.categoryFocusScore, weight: 5 }
+      },
+      warnings: Array.isArray(row.warningsJson) ? row.warningsJson : [],
+      weightsVersion: row.weightsVersion,
+      profile: row.inputProfileJson,
+      updatedAt: row.updatedAt.toISOString()
+    };
+  }
+
+  private staleSweepInFlight = false;
+  private static readonly staleSweepMaxPerTick = 3;
+  private static readonly staleSweepThresholdMs = 6 * 60 * 60 * 1000;
+
+  private async scheduleStaleSweep(): Promise<void> {
+    if (this.staleSweepInFlight || !this.walletSyncQueue) return;
+    this.staleSweepInFlight = true;
+    try {
+      const cutoff = new Date(Date.now() - WalletsService.staleSweepThresholdMs);
+      const stale = await this.prisma.walletRanking.findMany({
+        where: { updatedAt: { lt: cutoff } },
+        orderBy: { updatedAt: "asc" },
+        take: WalletsService.staleSweepMaxPerTick,
+        select: { walletAddress: true }
+      });
+      for (const row of stale) {
+        await this.walletSyncQueue.add(
+          "refresh-wallet",
+          { walletAddress: row.walletAddress },
+          { removeOnComplete: 100, removeOnFail: 100, attempts: 1 }
+        );
+      }
+    } finally {
+      this.staleSweepInFlight = false;
+    }
+  }
+
   async getCategoryExposure(walletAddress: string, config: CopyReadinessConfig): Promise<CategoryExposure[]> {
     return (await this.getCopyReadiness(walletAddress, config)).categoryExposure;
   }
 
   async getOversizedTrades(walletAddress: string, config: CopyReadinessConfig): Promise<OversizedTrade[]> {
     return (await this.getCopyReadiness(walletAddress, config)).oversizedTrades;
+  }
+
+  private buildRankingInputs(args: {
+    performance: ReturnType<typeof calculateAdvancedPerformance>;
+    readiness: ReturnType<typeof calculateCopyReadiness>;
+    latestSimulationResultJson: Prisma.JsonValue | null;
+    positions: Array<{ marketId: string; outcome: string; currentShares: string }>;
+    snapshotChecked: boolean;
+    tradeCount: number;
+    volume: string;
+  }): RankingInputs {
+    const { performance, readiness, latestSimulationResultJson, positions, snapshotChecked, tradeCount, volume } = args;
+
+    let simulator: RankingInputs["simulator"] = null;
+    if (latestSimulationResultJson && typeof latestSimulationResultJson === "object" && !Array.isArray(latestSimulationResultJson)) {
+      const result = latestSimulationResultJson as {
+        summary?: { roi?: string; maxDrawdownPercent?: string; winrate?: string; copiedTradeCount?: number; missedTradeCount?: number; fillMethodCounts?: Record<string, number> };
+        delaySensitivity?: Array<{ delaySeconds: number; roi: string }>;
+      };
+      if (result.summary && result.delaySensitivity) {
+        simulator = {
+          summary: {
+            roi: result.summary.roi ?? "0",
+            maxDrawdownPercent: result.summary.maxDrawdownPercent ?? "0",
+            winrate: result.summary.winrate ?? "0",
+            copiedTradeCount: result.summary.copiedTradeCount ?? 0,
+            missedTradeCount: result.summary.missedTradeCount ?? 0
+          },
+          delaySensitivity: result.delaySensitivity,
+          fillMethodCounts: result.summary.fillMethodCounts
+        };
+      }
+    }
+
+    return {
+      metrics: {
+        totalPnl: performance.totalPnl,
+        realizedPnl: performance.realizedPnl,
+        unrealizedPnl: performance.unrealizedPnl,
+        roi: performance.roi,
+        tradeWinrate: performance.tradeWinrate,
+        marketWinrate: performance.marketWinrate,
+        maxDrawdown: performance.maxDrawdown,
+        currentDrawdown: performance.currentDrawdown,
+        longestWinStreak: performance.longestWinStreak,
+        longestLossStreak: performance.longestLossStreak,
+        tradeCount,
+        volume,
+        profitDistributionJson: performance.profitDistribution,
+        winLossChartJson: performance.winLossChart
+      },
+      readiness: {
+        readinessScore: readiness.readinessScore,
+        dataCoverageScore: readiness.dataCoverageScore,
+        freshnessScore: readiness.freshnessScore,
+        activityScore: readiness.activityScore,
+        liquidityScore: readiness.liquidityScore,
+        positionSizeScore: readiness.positionSizeScore,
+        oversizedTradeSummary: readiness.oversizedTradeSummary
+          ? {
+              count: readiness.oversizedTradeSummary.count,
+              roi: readiness.oversizedTradeSummary.roi,
+              winrate: readiness.oversizedTradeSummary.winrate
+            }
+          : null,
+        dataValidation: null
+      },
+      simulator,
+      positions: positions.map((p) => ({
+        eventId: ("eventId" in p ? (p as { eventId?: string | null }).eventId ?? null : null),
+        negativeRisk: ("negativeRisk" in p ? (p as { negativeRisk?: boolean | null }).negativeRisk ?? null : null),
+        snapshotSource: ("snapshotSource" in p ? (p as { snapshotSource?: string | null }).snapshotSource ?? null : null),
+        currentShares: p.currentShares
+      })),
+      snapshotChecked,
+      profile: {
+        copyBalance: "1000",
+        maxPositionSize: "100",
+        delaySeconds: 0,
+        includedCategories: []
+      }
+    };
   }
 
   private async upsertMarket(tx: Prisma.TransactionClient, market: NormalizedMarket): Promise<void> {
@@ -805,6 +1185,8 @@ export class WalletsService {
         resolved: market.resolved,
         winningOutcome: market.winningOutcome,
         lastKnownPrice: market.lastKnownPrice ? new Prisma.Decimal(market.lastKnownPrice) : null,
+        eventId: market.eventId,
+        eventSlug: market.eventSlug,
         rawJson: market.rawJson as Prisma.InputJsonValue,
         source: market.metadata.source,
         fetchedAt: new Date(market.metadata.fetchedAt),
@@ -818,6 +1200,8 @@ export class WalletsService {
         resolved: market.resolved,
         winningOutcome: market.winningOutcome,
         lastKnownPrice: market.lastKnownPrice ? new Prisma.Decimal(market.lastKnownPrice) : undefined,
+        eventId: market.eventId ?? undefined,
+        eventSlug: market.eventSlug ?? undefined,
         rawJson: market.rawJson as Prisma.InputJsonValue,
         source: market.metadata.source,
         fetchedAt: new Date(market.metadata.fetchedAt),

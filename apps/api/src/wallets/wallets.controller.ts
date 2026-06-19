@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, HttpException, NotFoundException, Param, Post, Query } from "@nestjs/common";
 import { InjectQueue } from "@nestjs/bullmq";
 import type { Queue } from "bullmq";
 import {
@@ -84,6 +84,11 @@ export class WalletsController {
     return success(await this.walletsService.getWinLossChart(await this.resolveIdentifier(rawAddress)));
   }
 
+  @Get(":address/ranking")
+  async ranking(@Param("address") rawAddress: string) {
+    return success(await this.walletsService.getWalletRanking(await this.resolveIdentifier(rawAddress)));
+  }
+
   @Get(":address/copy-readiness")
   async copyReadiness(@Param("address") rawAddress: string, @Query() query: unknown) {
     const config = copyReadinessQuerySchema.parse(query);
@@ -127,8 +132,10 @@ export class WalletsController {
   private async resolveIdentifier(identifier: string): Promise<string> {
     try {
       return await this.walletsService.resolveWalletIdentifier(identifier);
-    } catch {
-      throw new BadRequestException("Invalid wallet address or Polymarket profile slug");
+    } catch (error) {
+      // Let upstream 404s (e.g. WALLET_USERNAME_NOT_FOUND) propagate untouched.
+      if (error instanceof HttpException || error instanceof NotFoundException) throw error;
+      throw new BadRequestException("Invalid wallet address, profile slug, or username");
     }
   }
 }

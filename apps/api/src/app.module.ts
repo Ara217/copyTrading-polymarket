@@ -6,6 +6,7 @@ import { PrismaModule } from "./prisma/prisma.module";
 import { WalletsModule } from "./wallets/wallets.module";
 import { PolymarketModule } from "./polymarket/polymarket.module";
 import { CacheModule } from "./cache/cache.module";
+import { RankingsModule } from "./rankings/rankings.module";
 
 @Module({
   imports: [
@@ -22,7 +23,8 @@ import { CacheModule } from "./cache/cache.module";
     PrismaModule,
     CacheModule,
     PolymarketModule,
-    WalletsModule
+    WalletsModule,
+    RankingsModule
   ],
   controllers: [HealthController]
 })

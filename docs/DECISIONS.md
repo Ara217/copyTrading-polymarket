@@ -105,3 +105,57 @@ These notes are the source of truth for future refreshes and continuation runs.
 - Default sizing (copy 10%, min $5) skips trades whose copied value falls below the floor; on small-size wallets this yields "0 trades copied" and the matching sells cascade to `NOTHING_TO_REDUCE`, which reads as breakage.
 - Mitigations: (A) the results panel shows an empty-state explanation when `copiedTradeCount === 0`, derived from the dominant blocking `missedReasonCounts` (ignoring `NOTHING_TO_REDUCE`, a downstream effect); (B) `GET /wallets/:address/copy-sizing-suggestion` exposes the wallet's trade-notional distribution and a recommended copy %/min size (min ≈ p25 trade value × copy %, so ~75% of trades clear the floor), surfaced via a "Use recommended settings" action.
 - Deferred (optional V4.x): balance-anchored sizing mode (fraction of the user's balance per copy rather than the trader's notional). More realistic, but not needed once A+B remove the confusion. Recorded in `docs/ROADMAP.md`.
+
+## V5 Positions Snapshot
+
+- `/trades`-only reconstruction silently disagrees with Polymarket's UI whenever a position closes off-CLOB (redemption, merge, neg-risk conversion, transfer). V5 introduces `/positions` as the authoritative snapshot of current state and reconciles trade replay against it inside `refreshWallet`.
+- Adapter: `DataClient.getWalletPositions(address)` paginates `data-api.polymarket.com/positions?user=<addr>&sizeThreshold=0`. `sizeThreshold=0` is required so settled-but-not-redeemed rows still come back; without it the API would omit positions sitting at zero.
+- Cross-check (`apps/api/src/wallets/positions-snapshot.ts:mergeReconstructionWithSnapshot`) runs after `reconstructPositions`. Precedence rules:
+  1. Upstream `size === 0` (or row missing) with reconstructed shares → **redemption path**. Use upstream `realizedPnl` if present; otherwise credit `(settlementPrice × shares) − costBasis` using the winning outcome from gamma + CLOB `/markets/<id>` fallback.
+  2. Upstream row present with `size > 0` but reconstruction diverges by more than tolerance → **snapshot wins**. Persist upstream `size`, `avgPrice`, `realizedPnl`; recompute `unrealizedPnl` from upstream `curPrice` when available.
+  3. Within tolerance → reconstruction stands. Snapshot-only fields (`curPrice`, `currentValue`, `cashPnl`, `percentPnl`, `eventId`, `negativeRisk`, `redeemable`, `mergeable`) are still attached so downstream consumers see consistent enrichment.
+  4. Upstream rows with no matching reconstruction → inserted as snapshot-only positions with `confidenceScore = 70` (typically positions older than the public `/trades` window).
+- Tolerances: 0.5% relative on size and currentValue, 1¢ absolute on prices. Beyond tolerance triggers a structured `positions.divergence` log with both sides of the delta.
+- Snapshot failure (network, schema mismatch) does not break refresh: the adapter call is wrapped in `.catch(() => [])` and the merge collapses to pure reconstruction. A `positions.snapshot.failed` log captures the failure.
+- Market enrichment: `eventId` and `eventSlug` are pulled from gamma `/markets` when present and back-filled from `/positions` rows when gamma lacks them. Persisted on `Market` to support V6 event-grouped filters and V8 portfolio correlation.
+- Position-level columns added: `Position.eventId`, `negativeRisk`, `redeemable`, `mergeable`, `curPrice`, `currentValue`, `cashPnl`, `percentPnl`, `snapshotSource`, `snapshotAt`. All nullable so pre-V5 rows remain valid; one-shot backfill: `apps/api/scripts/backfill-positions-snapshot.ts` re-runs `refreshWallet` per persisted wallet.
+- Upstream `curPrice` is preferred over per-market CLOB `/book` lookups; CLOB `/book` and `/markets/<id>` resolution remain fallbacks for positions outside the snapshot.
+
+## V5 Ranking Weights
+
+- Weights are locked in `packages/analytics/src/ranking.ts:DEFAULT_WEIGHTS` and versioned via `WEIGHTS_VERSION` (`v5.1-2026-06-19`). Any change to weights or scoring functions MUST bump the version so persisted `WalletRanking` rows stay traceable.
+- Component weights total 100:
+
+  | Component | Weight | Source |
+  |---|---:|---|
+  | Simulated copy ROI | 22 | latest `CopySimulation.summary.roi` |
+  | Drawdown | 15 | simulator `maxDrawdownPercent`, falls back to `WalletMetrics.maxDrawdown` |
+  | Consistency | 12 | `tradeWinrate` − loss-streak penalty, capped by sample size |
+  | Recent performance | 10 | trailing 30 days of `winLossChartJson` |
+  | Liquidity compatibility | 10 | `WalletReadiness.liquidityScore` |
+  | Data confidence | 8 | coverage + freshness + V5 snapshot-checked + sample bonus |
+  | Activity cadence | 7 | `WalletReadiness.activityScore` |
+  | Delay tolerance | 6 | `simulator.delaySensitivity` ROI degradation 0s → 5min |
+  | Oversized-trade risk | 5 | readiness oversized count + neg-risk share of open positions |
+  | Category focus | 5 | top `eventId` share of active positions (30–70% ideal) |
+
+- **Null redistribution rule**: any component returning `null` (e.g. no simulator output) routes its weight to `dataConfidence` only. This intentionally prevents wallets with thin evidence from gaming the score by missing dimensions — instead they get rewarded only for the data-confidence axis they actually pass.
+- **Forced "Avoid copying"**: regardless of weighted sum, `finalScore` is capped at 39 if `finalScore < 40` *or* `liquidity < 10` *or* `dataConfidence < 20`. A single critical failure cannot be averaged away.
+- **Classification thresholds**: 90–100 prime, 80–89 strong, 60–79 watchlist, 40–59 high-risk, 0–39 avoid.
+- **Warnings** surface profitable-but-uncopyable combinations (high ROI + low liquidity, high ROI + low confidence, high ROI + deep drawdown), plus thin-evidence and snapshot-unchecked tags.
+
+## V5 Ranking Recompute Trigger
+
+- Three layers, in this order:
+  1. **Sync inside `refreshWallet`**. Inputs (metrics, readiness, latest simulator, positions snapshot) are already in memory at the end of refresh, so persisting `WalletRanking` adds no extra database round-trip beyond the row write itself.
+  2. **Redis cache on read**. `GET /wallets/:address/ranking` and `GET /rankings/wallets` cache responses for 15 minutes. Cache keys include the ranking-profile inputs (`copyBalance`, `maxPositionSize`, `delaySeconds`, `includedCategories`) so different copier profiles never share a cache slot.
+  3. **Stale-sweep on leaderboard read**. `GET /rankings/wallets` enqueues a BullMQ `refreshWallet` job for any persisted ranking older than 6 hours, rate-limited so a popular leaderboard query never fan-outs unbounded work. No dedicated cron until leaderboard scale justifies one.
+
+## V5 Username Resolution
+
+- Polymarket profiles can be addressed by username (`inaccuratestake`) in addition to the existing `0x...` address and `0x...-<timestamp>` slug. V5 accepts all three.
+- Resolution mechanism: scrape `https://polymarket.com/profile/<input>` HTML for the embedded `"proxyWallet":"0x..."` token. This is the same path the V1 slug resolver already used (`polymarket.service.ts:resolveProfileSlug`). No documented JSON endpoint exists for username → address; the HTML scrape is the resolution itself, not a substitution (the input has no embedded address to override).
+- Validation: usernames are validated against `polymarketUsernameSchema` (`^[a-zA-Z0-9_.-]{1,32}$`, lowercased) before any upstream fetch. Invalid inputs short-circuit without hitting Polymarket.
+- Failure mode: when scraping yields no `proxyWallet`, `WalletsService.resolveWalletIdentifier` throws a `NotFoundException` with code `WALLET_USERNAME_NOT_FOUND`. The resolver MUST NEVER substitute a different wallet — this preserves the existing decision rule that profile resolution never silently changes the wallet under analysis.
+- Cache: resolved usernames are written to Redis at `username:resolve:<lc-username>` with a 24-hour TTL and persisted on `Wallet.username` (already present on the schema). Subsequent lookups bypass both Redis and Polymarket once the wallet row is populated.
+- Identifier pipeline order in the backend: 0x address → profile slug → username. The controller catches resolution errors and only re-wraps non-HTTP errors as `BadRequestException`, so `WALLET_USERNAME_NOT_FOUND` propagates as a 404 untouched.
