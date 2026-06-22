@@ -153,6 +153,22 @@ describe("mergeReconstructionWithSnapshot", () => {
     expect(result.positions[0].unrealizedPnl).toBe("0.7");
   });
 
+  it("synthesizes a market for every snapshot-only position so the FK never breaks", () => {
+    const result = mergeReconstructionWithSnapshot({
+      walletAddress: "0xwallet",
+      reconstructed: [],
+      snapshot: [snapshotRow({ conditionId: "0xother", size: "7", avgPrice: "0.3", curPrice: "0.4" })],
+      markets: [],
+      priceSnapshots: [],
+      snapshotAt
+    });
+    const marketConditionIds = new Set(result.markets.map((m) => m.conditionId));
+    for (const position of result.positions) {
+      expect(marketConditionIds.has(position.marketId)).toBe(true);
+    }
+    expect(marketConditionIds.has("0xother")).toBe(true);
+  });
+
   it("back-merges eventId/eventSlug from snapshot into markets", () => {
     const result = mergeReconstructionWithSnapshot({
       walletAddress: "0xwallet",

@@ -240,9 +240,35 @@ export function mergeReconstructionWithSnapshot(input: {
   // holds that didn't surface in /trades — most often because they predate the
   // public Data API trade window. Treat them as snapshot-only inserts so the UI
   // reflects true current state. Realized PnL from upstream, no replay.
+  //
+  // Persisted positions carry a FK (Position.marketId -> Market.conditionId), so any
+  // condition referenced here that isn't already in the markets list must get a
+  // synthesized Market row, or the downstream createMany violates the constraint.
+  const finalMarkets: NormalizedMarket[] = [...enrichedMarkets];
+  const knownConditionIds = new Set(finalMarkets.map((market) => market.conditionId));
+
   for (const upstream of snapshotByKey.values()) {
     const upSize = toDecimal(upstream.size);
     if (upSize.lte(0)) continue; // skip empty rows (we already covered those via redemption path)
+
+    if (!knownConditionIds.has(upstream.conditionId)) {
+      knownConditionIds.add(upstream.conditionId);
+      finalMarkets.push({
+        conditionId: upstream.conditionId,
+        slug: upstream.marketSlug,
+        title: upstream.marketTitle,
+        category: null,
+        endDate: null,
+        resolved: false,
+        winningOutcome: null,
+        lastKnownPrice: upstream.curPrice,
+        eventId: upstream.eventId,
+        eventSlug: upstream.eventSlug,
+        rawJson: upstream.rawJson,
+        metadata: upstream.metadata
+      });
+    }
+
     const upAvg = upstream.avgPrice !== null ? toDecimal(upstream.avgPrice) : new Decimal(0);
     const upCur = upstream.curPrice !== null ? toDecimal(upstream.curPrice) : upAvg;
     const upUnrealized = upCur.minus(upAvg).mul(upSize);
@@ -271,9 +297,31 @@ export function mergeReconstructionWithSnapshot(input: {
     });
   }
 
+  // Final FK safety net: any position (reconstructed or snapshot-only) whose marketId
+  // has no Market row would break the createMany FK. Synthesize a placeholder market
+  // for any straggler so persistence never fails on a missing condition.
+  for (const position of finalPositions) {
+    if (knownConditionIds.has(position.marketId)) continue;
+    knownConditionIds.add(position.marketId);
+    finalMarkets.push({
+      conditionId: position.marketId,
+      slug: null,
+      title: null,
+      category: null,
+      endDate: null,
+      resolved: false,
+      winningOutcome: null,
+      lastKnownPrice: null,
+      eventId: position.eventId ?? null,
+      eventSlug: null,
+      rawJson: null,
+      metadata: { source: "data", fetchedAt: snapshotAt.toISOString(), adapterVersion: "synthesized" }
+    });
+  }
+
   return {
     positions: finalPositions,
-    markets: enrichedMarkets,
+    markets: finalMarkets,
     divergences,
     redemptionsCredited,
     snapshotChecked
