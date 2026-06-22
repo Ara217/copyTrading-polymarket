@@ -393,6 +393,7 @@ export interface WalletRankingDto {
     | "Avoid copying";
   components: {
     simulatedRoi: WalletRankingComponentDto;
+    realizedRoi: WalletRankingComponentDto;
     drawdown: WalletRankingComponentDto;
     consistency: WalletRankingComponentDto;
     recentPerformance: WalletRankingComponentDto;

@@ -2,6 +2,7 @@ import type { WalletRankingDto } from "@polyand/types";
 
 const COMPONENT_LABELS: Record<keyof WalletRankingDto["components"], string> = {
   simulatedRoi: "Simulated copy ROI",
+  realizedRoi: "Realized ROI",
   drawdown: "Drawdown",
   consistency: "Consistency",
   recentPerformance: "Recent performance",

@@ -14,6 +14,7 @@ import {
   buildCopySizingSuggestion,
   simulateCopyTrading,
   simulateDelaySensitivity,
+  DEFAULT_WEIGHTS,
   WEIGHTS_VERSION,
   type AnalyticsTrade,
   type CopyPriceHistorySeries,
@@ -351,16 +352,17 @@ export class WalletsService {
         where: { walletAddress },
         create: {
           walletAddress,
-          simulatedRoiScore: ranking.components.simulatedRoi.score ?? 0,
-          drawdownScore: ranking.components.drawdown.score ?? 0,
-          consistencyScore: ranking.components.consistency.score ?? 0,
-          recentPerformanceScore: ranking.components.recentPerformance.score ?? 0,
-          liquidityScore: ranking.components.liquidity.score ?? 0,
-          delayToleranceScore: ranking.components.delayTolerance.score ?? 0,
-          activityScore: ranking.components.activity.score ?? 0,
-          categoryFocusScore: ranking.components.categoryFocus.score ?? 0,
+          simulatedRoiScore: ranking.components.simulatedRoi.score,
+          realizedRoiScore: ranking.components.realizedRoi.score,
+          drawdownScore: ranking.components.drawdown.score,
+          consistencyScore: ranking.components.consistency.score,
+          recentPerformanceScore: ranking.components.recentPerformance.score,
+          liquidityScore: ranking.components.liquidity.score,
+          delayToleranceScore: ranking.components.delayTolerance.score,
+          activityScore: ranking.components.activity.score,
+          categoryFocusScore: ranking.components.categoryFocus.score,
           dataConfidenceScore: ranking.components.dataConfidence.score ?? 0,
-          oversizedRiskScore: ranking.components.oversizedRisk.score ?? 0,
+          oversizedRiskScore: ranking.components.oversizedRisk.score,
           finalScore: ranking.finalScore,
           classification: ranking.classification,
           warningsJson: ranking.warnings as unknown as Prisma.InputJsonValue,
@@ -368,16 +370,17 @@ export class WalletsService {
           inputProfileJson: ranking.profile as unknown as Prisma.InputJsonValue
         },
         update: {
-          simulatedRoiScore: ranking.components.simulatedRoi.score ?? 0,
-          drawdownScore: ranking.components.drawdown.score ?? 0,
-          consistencyScore: ranking.components.consistency.score ?? 0,
-          recentPerformanceScore: ranking.components.recentPerformance.score ?? 0,
-          liquidityScore: ranking.components.liquidity.score ?? 0,
-          delayToleranceScore: ranking.components.delayTolerance.score ?? 0,
-          activityScore: ranking.components.activity.score ?? 0,
-          categoryFocusScore: ranking.components.categoryFocus.score ?? 0,
+          simulatedRoiScore: ranking.components.simulatedRoi.score,
+          realizedRoiScore: ranking.components.realizedRoi.score,
+          drawdownScore: ranking.components.drawdown.score,
+          consistencyScore: ranking.components.consistency.score,
+          recentPerformanceScore: ranking.components.recentPerformance.score,
+          liquidityScore: ranking.components.liquidity.score,
+          delayToleranceScore: ranking.components.delayTolerance.score,
+          activityScore: ranking.components.activity.score,
+          categoryFocusScore: ranking.components.categoryFocus.score,
           dataConfidenceScore: ranking.components.dataConfidence.score ?? 0,
-          oversizedRiskScore: ranking.components.oversizedRisk.score ?? 0,
+          oversizedRiskScore: ranking.components.oversizedRisk.score,
           finalScore: ranking.finalScore,
           classification: ranking.classification,
           warningsJson: ranking.warnings as unknown as Prisma.InputJsonValue,
@@ -1016,16 +1019,17 @@ export class WalletsService {
 
   private serializeRanking(row: {
     walletAddress: string;
-    simulatedRoiScore: number;
-    drawdownScore: number;
-    consistencyScore: number;
-    recentPerformanceScore: number;
-    liquidityScore: number;
-    delayToleranceScore: number;
-    activityScore: number;
-    categoryFocusScore: number;
+    simulatedRoiScore: number | null;
+    realizedRoiScore: number | null;
+    drawdownScore: number | null;
+    consistencyScore: number | null;
+    recentPerformanceScore: number | null;
+    liquidityScore: number | null;
+    delayToleranceScore: number | null;
+    activityScore: number | null;
+    categoryFocusScore: number | null;
     dataConfidenceScore: number;
-    oversizedRiskScore: number;
+    oversizedRiskScore: number | null;
     finalScore: number;
     classification: string;
     warningsJson: Prisma.JsonValue;
@@ -1038,16 +1042,17 @@ export class WalletsService {
       finalScore: row.finalScore,
       classification: row.classification,
       components: {
-        simulatedRoi: { score: row.simulatedRoiScore, weight: 22 },
-        drawdown: { score: row.drawdownScore, weight: 15 },
-        consistency: { score: row.consistencyScore, weight: 12 },
-        recentPerformance: { score: row.recentPerformanceScore, weight: 10 },
-        liquidity: { score: row.liquidityScore, weight: 10 },
-        dataConfidence: { score: row.dataConfidenceScore, weight: 8 },
-        activity: { score: row.activityScore, weight: 7 },
-        delayTolerance: { score: row.delayToleranceScore, weight: 6 },
-        oversizedRisk: { score: row.oversizedRiskScore, weight: 5 },
-        categoryFocus: { score: row.categoryFocusScore, weight: 5 }
+        simulatedRoi: { score: row.simulatedRoiScore, weight: DEFAULT_WEIGHTS.simulatedRoi },
+        realizedRoi: { score: row.realizedRoiScore, weight: DEFAULT_WEIGHTS.realizedRoi },
+        drawdown: { score: row.drawdownScore, weight: DEFAULT_WEIGHTS.drawdown },
+        consistency: { score: row.consistencyScore, weight: DEFAULT_WEIGHTS.consistency },
+        recentPerformance: { score: row.recentPerformanceScore, weight: DEFAULT_WEIGHTS.recentPerformance },
+        liquidity: { score: row.liquidityScore, weight: DEFAULT_WEIGHTS.liquidity },
+        dataConfidence: { score: row.dataConfidenceScore, weight: DEFAULT_WEIGHTS.dataConfidence },
+        activity: { score: row.activityScore, weight: DEFAULT_WEIGHTS.activity },
+        delayTolerance: { score: row.delayToleranceScore, weight: DEFAULT_WEIGHTS.delayTolerance },
+        oversizedRisk: { score: row.oversizedRiskScore, weight: DEFAULT_WEIGHTS.oversizedRisk },
+        categoryFocus: { score: row.categoryFocusScore, weight: DEFAULT_WEIGHTS.categoryFocus }
       },
       warnings: Array.isArray(row.warningsJson) ? row.warningsJson : [],
       weightsVersion: row.weightsVersion,

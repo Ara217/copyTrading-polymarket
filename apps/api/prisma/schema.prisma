@@ -157,16 +157,20 @@ model WalletReadiness {
 model WalletRanking {
   id                       String   @id @default(cuid())
   walletAddress            String   @unique
-  simulatedRoiScore        Int
-  drawdownScore            Int
-  consistencyScore         Int
-  recentPerformanceScore   Int
-  liquidityScore           Int
-  delayToleranceScore      Int
-  activityScore            Int
-  categoryFocusScore       Int
+  // Component scores are nullable: a null means the signal could not be computed (e.g. simulated
+  // ROI / drawdown / delay tolerance before a copy simulation is run) and is shown as "n/a" rather
+  // than a misleading 0. dataConfidence is always present.
+  simulatedRoiScore        Int?
+  realizedRoiScore         Int?
+  drawdownScore            Int?
+  consistencyScore         Int?
+  recentPerformanceScore   Int?
+  liquidityScore           Int?
+  delayToleranceScore      Int?
+  activityScore            Int?
+  categoryFocusScore       Int?
   dataConfidenceScore      Int
-  oversizedRiskScore       Int
+  oversizedRiskScore       Int?
   finalScore               Int
   classification           String
   warningsJson             Json

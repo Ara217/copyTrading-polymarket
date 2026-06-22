@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeWalletRanking, DEFAULT_WEIGHTS, WEIGHTS_VERSION, type RankingInputs } from "./ranking.js";
+import { computeWalletRanking, SIM_MISSING_CAP, WEIGHTS_VERSION, type RankingInputs } from "./ranking.js";
 
 function baseInputs(overrides: Partial<RankingInputs> = {}): RankingInputs {
   return {
@@ -73,16 +73,73 @@ describe("computeWalletRanking", () => {
     }
   });
 
-  it("redistributes null component weight to dataConfidence only", () => {
+  it("does not reassign null component weight to dataConfidence; weights stay nominal", () => {
     const noSim = computeWalletRanking(baseInputs({ simulator: null }));
     expect(noSim.components.simulatedRoi.score).toBeNull();
     expect(noSim.components.delayTolerance.score).toBeNull();
-    expect(noSim.components.dataConfidence.weight).toBeGreaterThan(DEFAULT_WEIGHTS.dataConfidence);
-    expect(noSim.components.dataConfidence.weight).toBe(
-      DEFAULT_WEIGHTS.dataConfidence + DEFAULT_WEIGHTS.simulatedRoi + DEFAULT_WEIGHTS.delayTolerance
+    expect(noSim.components.drawdown.score).toBeNull(); // drawdown only scored from a simulation
+    // dataConfidence keeps its nominal weight — it no longer absorbs missing components.
+    const base = computeWalletRanking(baseInputs());
+    expect(noSim.components.dataConfidence.weight).toBe(base.components.dataConfidence.weight);
+    expect(noSim.components.liquidity.weight).toBe(base.components.liquidity.weight);
+  });
+
+  it("caps an un-backtested wallet at SIM_MISSING_CAP even with pristine data and liquidity", () => {
+    const noSim = computeWalletRanking(baseInputs({ simulator: null }));
+    expect(noSim.finalScore).toBeLessThanOrEqual(SIM_MISSING_CAP);
+  });
+
+  it("scores a deeply unprofitable, un-simulated wallet as Avoid copying", () => {
+    // Mirrors the real wallet that exposed the v5.1 inflation bug: -76% ROI, 0% trade winrate,
+    // no simulation, but clean/liquid data. Must NOT read as a copy candidate.
+    const loser = computeWalletRanking(
+      baseInputs({
+        simulator: null,
+        metrics: {
+          totalPnl: "-64455",
+          realizedPnl: "-64455",
+          unrealizedPnl: "0",
+          roi: "-0.76",
+          tradeWinrate: "0",
+          marketWinrate: "0.08",
+          maxDrawdown: "64455",
+          currentDrawdown: "64455",
+          longestWinStreak: 0,
+          longestLossStreak: 0,
+          tradeCount: 3858,
+          volume: "101698",
+          profitDistributionJson: [],
+          winLossChartJson: []
+        },
+        readiness: {
+          readinessScore: 80,
+          dataCoverageScore: 95,
+          freshnessScore: 95,
+          activityScore: 46,
+          liquidityScore: 96,
+          positionSizeScore: 80,
+          oversizedTradeSummary: { count: 0, roi: "0", winrate: "0" },
+          dataValidation: { apiWindowLimited: false }
+        }
+      })
     );
-    // Other component weights unchanged.
-    expect(noSim.components.liquidity.weight).toBe(DEFAULT_WEIGHTS.liquidity);
+    expect(loser.components.realizedRoi.score).not.toBeNull();
+    expect(loser.components.realizedRoi.score!).toBeLessThan(15);
+    expect(loser.finalScore).toBeLessThan(40);
+    expect(loser.classification).toBe("Avoid copying");
+  });
+
+  it("gives zero consistency to a 0%-winrate wallet (no free baseline)", () => {
+    const result = computeWalletRanking(
+      baseInputs({
+        metrics: {
+          ...baseInputs().metrics!,
+          tradeWinrate: "0",
+          longestLossStreak: 0
+        }
+      })
+    );
+    expect(result.components.consistency.score).toBe(0);
   });
 
   it("classifies above 80 as strong and 90+ as prime", () => {

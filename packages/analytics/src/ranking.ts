@@ -1,13 +1,28 @@
 import Decimal from "decimal.js";
 
 // V5 copyability ranking. Weights documented in docs/DECISIONS.md "V5 Ranking Weights".
-// Null components redistribute their weight to dataConfidence (never to other components),
-// so wallets with thin evidence cannot game the score by missing a dimension.
+//
+// v5.2 overhaul (2026-06-22):
+//  - Null components are NO LONGER redistributed onto dataConfidence (which is ~always 100 for
+//    a synced wallet and previously inflated unprofitable wallets). The final score is a weighted
+//    AVERAGE over the components we could actually score, renormalised by their present weight.
+//  - realizedRoi is a first-class component, so a wallet's lifetime ROI directly affects the score
+//    even when no copy simulation has been run.
+//  - Without a simulation the score is capped (SIM_MISSING_CAP) so an un-backtested wallet can never
+//    read as a confident "Strong"/"Prime" copy candidate.
+//  - drawdown is scored only from the simulator's maxDrawdownPercent (a true fraction); the old
+//    metrics fallback fed a dollar amount into a fraction-based curve and is removed.
+//  - consistency no longer adds a free +30 baseline, so a 0%-winrate wallet scores 0 there.
 
-export const WEIGHTS_VERSION = "v5.1-2026-06-19";
+export const WEIGHTS_VERSION = "v5.2-2026-06-22";
+
+// Without a copy simulation the two most predictive signals (simulatedRoi, delayTolerance) are
+// absent. Cap the score so an un-backtested wallet cannot exceed "Watchlist candidate".
+export const SIM_MISSING_CAP = 69;
 
 export interface RankingWeights {
   simulatedRoi: number;
+  realizedRoi: number;
   drawdown: number;
   consistency: number;
   recentPerformance: number;
@@ -20,14 +35,15 @@ export interface RankingWeights {
 }
 
 export const DEFAULT_WEIGHTS: RankingWeights = {
-  simulatedRoi: 22,
-  drawdown: 15,
+  simulatedRoi: 18,
+  realizedRoi: 16,
+  drawdown: 12,
   consistency: 12,
-  recentPerformance: 10,
-  liquidity: 10,
-  dataConfidence: 8,
-  activity: 7,
-  delayTolerance: 6,
+  recentPerformance: 8,
+  liquidity: 9,
+  dataConfidence: 5,
+  activity: 6,
+  delayTolerance: 4,
   oversizedRisk: 5,
   categoryFocus: 5
 };
@@ -107,6 +123,7 @@ export interface RankingComponent {
 export interface RankingResult {
   components: {
     simulatedRoi: RankingComponent;
+    realizedRoi: RankingComponent;
     drawdown: RankingComponent;
     consistency: RankingComponent;
     recentPerformance: RankingComponent;
@@ -138,21 +155,34 @@ function dec(value: string | null | undefined): Decimal {
 
 // ---- component scorers ----
 
-function scoreSimulatedRoi(roi: string | null): number | null {
+// Shared ROI → score curve, used for both simulated copy ROI and realized lifetime ROI.
+// -1 (=-100%) → 0; 0 → 30; +0.5 → 80; +1.0+ → 100. Linear within ranges.
+function scoreRoiCurve(roi: string | null): number | null {
   if (roi === null) return null;
-  // -1 (=-100%) → 0; 0 → 30; +0.5 → 80; +1.0+ → 100. Linear within ranges.
   const r = dec(roi).toNumber();
   if (!Number.isFinite(r)) return null;
   if (r <= -1) return 0;
-  if (r <= 0) return clamp(30 + (r * 30)); // r in (-1,0]: 0..30
+  if (r <= 0) return clamp(30 + r * 30); // r in (-1,0]: 0..30
   if (r <= 0.5) return clamp(30 + r * 100); // r in (0,0.5]: 30..80
   if (r <= 1) return clamp(80 + (r - 0.5) * 40); // r in (0.5,1]: 80..100
   return 100;
 }
 
+function scoreSimulatedRoi(roi: string | null): number | null {
+  return scoreRoiCurve(roi);
+}
+
+// Realized lifetime ROI from persisted metrics. Always present once a wallet has metrics, so a
+// losing wallet (e.g. -76% ROI) gets a near-zero profitability score even with no simulation.
+function scoreRealizedRoi(roi: string | null): number | null {
+  return scoreRoiCurve(roi);
+}
+
 function scoreDrawdown(drawdownPercent: string | null): number | null {
+  // Only scored from a true fraction (the simulator's maxDrawdownPercent, e.g. "-0.25" = -25%).
+  // The persisted metrics.maxDrawdown is a dollar amount, so it is intentionally NOT used here —
+  // feeding dollars into this fraction-based curve was the v5.1 unit bug.
   if (drawdownPercent === null) return null;
-  // Drawdown is a non-positive percent value (e.g. "-0.25" = -25%). Treat magnitude.
   const mag = dec(drawdownPercent).abs().toNumber();
   if (!Number.isFinite(mag)) return null;
   // 0% → 100; 10% → 80; 30% → 50; 50%+ → 0. Linear in 0..50.
@@ -160,11 +190,13 @@ function scoreDrawdown(drawdownPercent: string | null): number | null {
 }
 
 function scoreConsistency(tradeWinrate: string, longestLossStreak: number, tradeCount: number): number {
-  // Winrate dominates; long loss streaks penalize; very low sample (<20) caps the score.
+  // Winrate drives the score directly; long loss streaks penalize; small samples cap the upside.
+  // No baseline bonus — a 0% trade winrate scores 0 (v5.1 added a free +30 that propped up
+  // wallets that never won).
   const wr = clamp(dec(tradeWinrate).mul(100).toNumber(), 0, 100);
   const streakPenalty = Math.min(longestLossStreak * 3, 30);
   const sampleCap = tradeCount < 20 ? 60 : tradeCount < 50 ? 80 : 100;
-  return clamp(Math.min(wr - streakPenalty + 30, sampleCap));
+  return clamp(Math.min(wr - streakPenalty, sampleCap));
 }
 
 function scoreRecentPerformance(winLossChartJson: unknown): number | null {
@@ -328,11 +360,9 @@ function buildWarnings(
 export function computeWalletRanking(inputs: RankingInputs, weights: RankingWeights = DEFAULT_WEIGHTS): RankingResult {
   const tradeCount = inputs.metrics?.tradeCount ?? 0;
   const simulatedRoi = scoreSimulatedRoi(inputs.simulator?.summary.roi ?? null);
-  const drawdown = inputs.simulator
-    ? scoreDrawdown(inputs.simulator.summary.maxDrawdownPercent)
-    : inputs.metrics
-      ? scoreDrawdown(inputs.metrics.maxDrawdown)
-      : null;
+  const realizedRoi = scoreRealizedRoi(inputs.metrics?.roi ?? null);
+  // Drawdown only from the simulator's true-fraction maxDrawdownPercent; null without a simulation.
+  const drawdown = inputs.simulator ? scoreDrawdown(inputs.simulator.summary.maxDrawdownPercent) : null;
   const consistency = inputs.metrics
     ? scoreConsistency(inputs.metrics.tradeWinrate, inputs.metrics.longestLossStreak, tradeCount)
     : null;
@@ -346,6 +376,7 @@ export function computeWalletRanking(inputs: RankingInputs, weights: RankingWeig
 
   const componentRaw: Array<{ key: keyof RankingWeights; score: number | null; weight: number }> = [
     { key: "simulatedRoi", score: simulatedRoi, weight: weights.simulatedRoi },
+    { key: "realizedRoi", score: realizedRoi, weight: weights.realizedRoi },
     { key: "drawdown", score: drawdown, weight: weights.drawdown },
     { key: "consistency", score: consistency, weight: weights.consistency },
     { key: "recentPerformance", score: recent, weight: weights.recentPerformance },
@@ -357,33 +388,43 @@ export function computeWalletRanking(inputs: RankingInputs, weights: RankingWeig
     { key: "categoryFocus", score: categoryFocus, weight: weights.categoryFocus }
   ];
 
-  // Null component → redistribute weight to dataConfidence (never to other components).
-  // dataConfidence is never null by construction.
-  let dataConfidenceWeight = weights.dataConfidence;
+  // Final score is a weighted AVERAGE over the components we could actually score, renormalised by
+  // their present weight. A null component simply drops out — its weight is never reassigned to any
+  // other component (the v5.1 bug funnelled it onto dataConfidence and inflated unprofitable wallets).
+  let weightedSum = 0;
+  let presentWeight = 0;
   for (const c of componentRaw) {
-    if (c.score === null && c.key !== "dataConfidence") {
-      dataConfidenceWeight += c.weight;
-    }
+    if (c.score === null) continue;
+    weightedSum += c.score * c.weight;
+    presentWeight += c.weight;
   }
-  const finalWeighted = componentRaw.reduce((acc, c) => {
-    if (c.score === null) return acc;
-    const w = c.key === "dataConfidence" ? dataConfidenceWeight : c.weight;
-    return acc + (c.score * w) / 100;
-  }, 0);
+  let finalScore = presentWeight === 0 ? 0 : roundScore(weightedSum / presentWeight);
 
-  let finalScore = roundScore(finalWeighted);
-  // Force "Avoid copying" classification if any critical signal completely failed.
-  if (finalScore < 40 || (liquidity !== null && liquidity < 10) || (dataConfidence < 20)) {
+  // No simulation → cap the score; an un-backtested wallet can't be a confident copy candidate.
+  if (inputs.simulator === null) {
+    finalScore = Math.min(finalScore, SIM_MISSING_CAP);
+  }
+  // Profitability gate: copy-trading is pointless if the trader loses money. Use the best available
+  // profitability evidence — the backtest when present, otherwise realized lifetime ROI. On the ROI
+  // curve a score < 30 means ROI < 0, so an unprofitable wallet is floored to "Avoid copying" no
+  // matter how clean or liquid its mechanics look.
+  const profitScore = simulatedRoi ?? realizedRoi;
+  if (profitScore !== null && profitScore < 30) {
+    finalScore = Math.min(finalScore, 39);
+  }
+  // Force "Avoid copying" floor if any critical signal completely failed.
+  if (finalScore < 40 || (liquidity !== null && liquidity < 10) || dataConfidence < 20) {
     finalScore = Math.min(finalScore, 39);
   }
 
   const components: RankingResult["components"] = {
     simulatedRoi: { score: simulatedRoi === null ? null : roundScore(simulatedRoi), weight: weights.simulatedRoi },
+    realizedRoi: { score: realizedRoi === null ? null : roundScore(realizedRoi), weight: weights.realizedRoi },
     drawdown: { score: drawdown === null ? null : roundScore(drawdown), weight: weights.drawdown },
     consistency: { score: consistency === null ? null : roundScore(consistency), weight: weights.consistency },
     recentPerformance: { score: recent === null ? null : roundScore(recent), weight: weights.recentPerformance },
     liquidity: { score: liquidity === null ? null : roundScore(liquidity), weight: weights.liquidity },
-    dataConfidence: { score: roundScore(dataConfidence), weight: dataConfidenceWeight, detail: dataConfidenceWeight > weights.dataConfidence ? "absorbed weight from null components" : undefined },
+    dataConfidence: { score: roundScore(dataConfidence), weight: weights.dataConfidence },
     activity: { score: activity === null ? null : roundScore(activity), weight: weights.activity },
     delayTolerance: { score: delayTol === null ? null : roundScore(delayTol), weight: weights.delayTolerance },
     oversizedRisk: { score: oversizedRisk === null ? null : roundScore(oversizedRisk), weight: weights.oversizedRisk },

@@ -123,24 +123,36 @@ These notes are the source of truth for future refreshes and continuation runs.
 
 ## V5 Ranking Weights
 
-- Weights are locked in `packages/analytics/src/ranking.ts:DEFAULT_WEIGHTS` and versioned via `WEIGHTS_VERSION` (`v5.1-2026-06-19`). Any change to weights or scoring functions MUST bump the version so persisted `WalletRanking` rows stay traceable.
+- Weights are locked in `packages/analytics/src/ranking.ts:DEFAULT_WEIGHTS` and versioned via `WEIGHTS_VERSION` (`v5.2-2026-06-22`). Any change to weights or scoring functions MUST bump the version so persisted `WalletRanking` rows stay traceable.
 - Component weights total 100:
 
   | Component | Weight | Source |
   |---|---:|---|
-  | Simulated copy ROI | 22 | latest `CopySimulation.summary.roi` |
-  | Drawdown | 15 | simulator `maxDrawdownPercent`, falls back to `WalletMetrics.maxDrawdown` |
+  | Simulated copy ROI | 18 | latest `CopySimulation.summary.roi` (null if no simulation) |
+  | Realized ROI | 16 | `WalletMetrics.roi` — lifetime realized ROI, same curve as simulated |
+  | Drawdown | 12 | simulator `maxDrawdownPercent` only (null if no simulation) |
   | Consistency | 12 | `tradeWinrate` − loss-streak penalty, capped by sample size |
-  | Recent performance | 10 | trailing 30 days of `winLossChartJson` |
-  | Liquidity compatibility | 10 | `WalletReadiness.liquidityScore` |
-  | Data confidence | 8 | coverage + freshness + V5 snapshot-checked + sample bonus |
-  | Activity cadence | 7 | `WalletReadiness.activityScore` |
-  | Delay tolerance | 6 | `simulator.delaySensitivity` ROI degradation 0s → 5min |
+  | Recent performance | 8 | trailing 30 buckets of `winLossChartJson` (null if no resolved tail) |
+  | Liquidity compatibility | 9 | `WalletReadiness.liquidityScore` |
+  | Data confidence | 5 | coverage + freshness + V5 snapshot-checked + sample bonus |
+  | Activity cadence | 6 | `WalletReadiness.activityScore` |
+  | Delay tolerance | 4 | `simulator.delaySensitivity` ROI degradation 0s → 5min (null if no simulation) |
   | Oversized-trade risk | 5 | readiness oversized count + neg-risk share of open positions |
   | Category focus | 5 | top `eventId` share of active positions (30–70% ideal) |
 
-- **Null redistribution rule**: any component returning `null` (e.g. no simulator output) routes its weight to `dataConfidence` only. This intentionally prevents wallets with thin evidence from gaming the score by missing dimensions — instead they get rewarded only for the data-confidence axis they actually pass.
-- **Forced "Avoid copying"**: regardless of weighted sum, `finalScore` is capped at 39 if `finalScore < 40` *or* `liquidity < 10` *or* `dataConfidence < 20`. A single critical failure cannot be averaged away.
+### v5.2 overhaul (2026-06-22)
+
+Replaces the v5.1 scoring that let a deeply unprofitable wallet (real example: −80% ROI, 0% trade winrate, no simulation) score 63 "Watchlist candidate". Root cause: the null-redistribution rule funnelled the missing profit weight onto `dataConfidence` (~always 100), so "we have clean data about this loser" read as "good copy candidate".
+
+- **No weight redistribution.** `finalScore` is now a weighted **average over the components actually scored**, renormalised by their present weight. A `null` component simply drops out — its weight is never reassigned to any other component (previously it inflated `dataConfidence`).
+- **Realized ROI is a first-class component** (`WalletMetrics.roi`), so lifetime profitability affects the score even with no simulation run. Simulated and realized ROI share one curve: −100% → 0, 0% → 30, +50% → 80, +100%+ → 100.
+- **Profitability gate.** Using the best available profit evidence (`simulatedRoi ?? realizedRoi`), a score `< 30` (i.e. ROI `< 0`) floors `finalScore` to 39 — an unprofitable wallet is "Avoid copying" no matter how clean or liquid its mechanics.
+- **Sim-missing cap** (`SIM_MISSING_CAP = 69`). Without a simulation the two most predictive signals (simulated ROI, delay tolerance) are absent, so the score is capped at 69 — an un-backtested wallet cannot read as "Strong"/"Prime".
+- **Drawdown unit fix.** Drawdown is scored only from the simulator's `maxDrawdownPercent` (a true fraction); the v5.1 fallback fed `WalletMetrics.maxDrawdown` (a **dollar** amount) into a fraction-based curve. Without a simulation, drawdown is `null`.
+- **Consistency baseline removed.** Was `winrate − penalty + 30`; the free +30 propped up wallets that never won. Now `winrate − penalty`, so a 0% trade winrate scores 0.
+- **Component scores persist as nullable.** `WalletRanking.*Score` columns are nullable (migration `20260622_v5_2_ranking_overhaul`) so a missing signal renders as "n/a" in the UI instead of a misleading 0. `dataConfidenceScore` stays non-null.
+
+- **Forced "Avoid copying"**: regardless of weighted average, `finalScore` is capped at 39 if `finalScore < 40` *or* `liquidity < 10` *or* `dataConfidence < 20`. A single critical failure cannot be averaged away.
 - **Classification thresholds**: 90–100 prime, 80–89 strong, 60–79 watchlist, 40–59 high-risk, 0–39 avoid.
 - **Warnings** surface profitable-but-uncopyable combinations (high ROI + low liquidity, high ROI + low confidence, high ROI + deep drawdown), plus thin-evidence and snapshot-unchecked tags.
 
