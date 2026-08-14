@@ -15,8 +15,22 @@ import type {
   WalletOverview,
   WalletPerformance,
   WalletRankingDto,
+  WalletRankingLeaderboardRow,
   WinLossChartPoint
 } from "@polyand/types";
+
+export interface WalletRankingsQuery {
+  page?: number;
+  pageSize?: number;
+  sort?: "finalScore" | "simulatedRoiScore" | "recentPerformanceScore";
+  classification?: WalletRankingLeaderboardRow["classification"];
+  minScore?: number;
+}
+
+export interface WalletRankingsPage {
+  data: WalletRankingLeaderboardRow[];
+  meta: { page: number; pageSize: number; total: number; sort: string };
+}
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000/api/v1";
 
@@ -88,5 +102,24 @@ export const api = {
       `/wallets/${encodeURIComponent(address)}/copy-simulations/${encodeURIComponent(id)}`
     ),
   getWalletRanking: (address: string) =>
-    request<WalletRankingDto>(`/wallets/${encodeURIComponent(address)}/ranking`)
+    request<WalletRankingDto>(`/wallets/${encodeURIComponent(address)}/ranking`),
+  // Unlike other endpoints, the leaderboard's pagination lives in `meta`, so we
+  // return the raw envelope rather than unwrapping to `.data` via request<T>.
+  listWalletRankings: async (query: WalletRankingsQuery = {}): Promise<WalletRankingsPage> => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined && value !== null) params.set(key, String(value));
+    }
+    const qs = params.toString();
+    const response = await fetch(`${API_BASE_URL}/rankings/wallets${qs ? `?${qs}` : ""}`, {
+      headers: { "content-type": "application/json" }
+    });
+    const body = (await response.json()) as
+      | (ApiSuccess<WalletRankingLeaderboardRow[]> & { meta: WalletRankingsPage["meta"] })
+      | ApiFailure;
+    if (!response.ok || "error" in body) {
+      throw new Error("error" in body ? body.error.message : "API request failed");
+    }
+    return { data: body.data, meta: body.meta };
+  }
 };

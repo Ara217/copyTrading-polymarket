@@ -28,7 +28,8 @@ Read in this order:
 - Done: `docs/versions/V3_COPY_READINESS.md`
 - Done: `docs/versions/V4_COPY_TRADING_SIMULATOR.md`
 - Done: `docs/versions/V5_COPYABILITY_RANKING.md`
-- Next target: `docs/versions/V6_COPY_CANDIDATE_SCREENER.md`
+- Next target: `docs/versions/V5_5_NEW_MARKET_SCREENER.md` (standalone market-discovery module, no wallet-analytics dependency)
+- Then: `docs/versions/V6_COPY_CANDIDATE_SCREENER.md`
 - Later modules:
   - `docs/versions/V7_COPY_ACTION_FEED_ALERTS.md`
   - `docs/versions/V8_PORTFOLIO_MULTI_WALLET_ANALYTICS.md`

@@ -14,7 +14,8 @@
     "paths": {
       "@polyand/shared": ["packages/shared/src/index.ts"],
       "@polyand/types": ["packages/types/src/index.ts"],
-      "@polyand/analytics": ["packages/analytics/src/index.ts"]
+      "@polyand/analytics": ["packages/analytics/src/index.ts"],
+      "@polyand/ui": ["packages/ui/src/index.ts"]
     }
   }
 }

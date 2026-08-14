@@ -12,6 +12,7 @@
   "dependencies": {
     "@polyand/shared": "file:../../packages/shared",
     "@polyand/types": "file:../../packages/types",
+    "@polyand/ui": "file:../../packages/ui",
     "@vitejs/plugin-react": "^4.3.4",
     "echarts": "^5.6.0",
     "echarts-for-react": "^3.0.2",

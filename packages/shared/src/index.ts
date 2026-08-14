@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export * from "./format.js";
+
 export const adapterVersion = "polymarket-v1";
 
 export const evmAddressSchema = z
@@ -159,6 +161,28 @@ export const polymarketPositionSchema = z
     event_id: z.union([z.string(), z.number()]).optional().nullable(),
     eventSlug: z.string().optional().nullable(),
     event_slug: z.string().optional().nullable()
+  })
+  .passthrough();
+
+// data-api /closed-positions rows: like /positions but no size/currentValue;
+// totalBought + realizedPnl describe the completed round trip.
+export const polymarketClosedPositionSchema = z
+  .object({
+    proxyWallet: z.string().optional().nullable(),
+    asset: z.union([z.string(), z.number()]).optional().nullable(),
+    conditionId: z.string().optional().nullable(),
+    condition_id: z.string().optional().nullable(),
+    outcome: z.string(),
+    outcomeIndex: z.union([z.number(), z.string()]).optional().nullable(),
+    avgPrice: z.union([z.string(), z.number()]).optional().nullable(),
+    totalBought: z.union([z.string(), z.number()]).optional().nullable(),
+    realizedPnl: z.union([z.string(), z.number()]).optional().nullable(),
+    curPrice: z.union([z.string(), z.number()]).optional().nullable(),
+    timestamp: z.union([z.string(), z.number()]).optional().nullable(),
+    title: z.string().optional().nullable(),
+    slug: z.string().optional().nullable(),
+    eventSlug: z.string().optional().nullable(),
+    endDate: z.string().optional().nullable()
   })
   .passthrough();
 

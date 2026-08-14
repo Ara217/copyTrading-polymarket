@@ -82,12 +82,12 @@ export function App() {
           <input
             value={address}
             onChange={(event) => setAddress(event.target.value)}
-            placeholder="0x wallet address or detected Polymarket URL wallet"
+            placeholder="0x wallet address, Polymarket username, or detected URL wallet"
             className="h-10 min-w-0 flex-1 rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-signal"
           />
           <button
             type="button"
-            onClick={() => void loadWallet()}
+            onClick={() => void loadWallet().catch(() => undefined)}
             className="flex h-10 items-center gap-2 rounded-md bg-ink px-4 text-sm font-medium text-white"
             title="Load wallet analytics"
           >
@@ -96,7 +96,7 @@ export function App() {
           </button>
           <button
             type="button"
-            onClick={() => void refresh()}
+            onClick={() => void refresh().catch(() => undefined)}
             className="flex h-10 items-center gap-2 rounded-md border border-line bg-white px-4 text-sm font-medium text-ink"
             title="Refresh wallet data"
           >
@@ -142,6 +142,7 @@ export function App() {
           syncedAt={overview?.lastSyncedAt}
           selectedPositionKey={selectedPositionKey}
           onSelectPosition={(position) => setSelectedPositionKey(positionKey(position))}
+          apiWindowLimited={copyReadiness?.dataValidation.apiWindowLimited}
         />
         )}
       </section>

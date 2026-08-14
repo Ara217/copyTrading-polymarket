@@ -67,15 +67,30 @@ export function mergeReconstructionWithSnapshot(input: {
   walletAddress: string;
   reconstructed: ReconstructedPosition[];
   snapshot: NormalizedPosition[];
+  closedSnapshot?: NormalizedPosition[];
   markets: NormalizedMarket[];
   priceSnapshots: MarketPriceSnapshot[];
   snapshotAt: Date;
 }): PositionsSnapshotMergeResult {
-  const { walletAddress, reconstructed, snapshot, markets, priceSnapshots, snapshotAt } = input;
+  const { walletAddress, reconstructed, snapshot, closedSnapshot = [], markets, priceSnapshots, snapshotAt } = input;
   const snapshotChecked = snapshot.length > 0;
   const snapshotByKey = new Map<string, NormalizedPosition>();
   for (const row of snapshot) {
     snapshotByKey.set(keyOf(row.conditionId, row.outcome), row);
+  }
+
+  // /closed-positions carries authoritative realizedPnl for completed round trips —
+  // including ones whose trades predate the /trades window. Keyed like the open
+  // snapshot; a key that is still open upstream keeps the open row (its realizedPnl
+  // already includes past round trips), so we drop the closed twin to avoid
+  // double-counting.
+  const closedByKey = new Map<string, NormalizedPosition>();
+  for (const row of closedSnapshot) {
+    const key = keyOf(row.conditionId, row.outcome);
+    const open = snapshotByKey.get(key);
+    if (!open || toDecimal(open.size).lte(0)) {
+      closedByKey.set(key, row);
+    }
   }
 
   // Lift winning outcome from price snapshots (gamma + CLOB resolution fallback already merged upstream).
@@ -116,6 +131,32 @@ export function mergeReconstructionWithSnapshot(input: {
     const reUnrealized = toDecimal(position.unrealizedPnl);
 
     if (!upstream || toDecimal(upstream.size).lte(0)) {
+      // Authoritative closed round trip: /closed-positions realizedPnl replaces both
+      // the settlement guess (redemption path) and window-truncated replay fragments.
+      const closed = closedByKey.get(key);
+      if (closed && closed.realizedPnl !== null) {
+        closedByKey.delete(key);
+        const closedRealized = toDecimal(closed.realizedPnl);
+        return {
+          ...position,
+          currentShares: "0",
+          averageEntryPrice: closed.avgPrice ?? position.averageEntryPrice,
+          realizedPnl: closedRealized.toString(),
+          unrealizedPnl: "0",
+          totalPnl: closedRealized.toString(),
+          curPrice: closed.curPrice,
+          currentValue: "0",
+          cashPnl: closed.realizedPnl,
+          percentPnl: null,
+          eventId: upstream?.eventId ?? null,
+          negativeRisk: upstream?.negativeRisk ?? null,
+          redeemable: upstream?.redeemable ?? null,
+          mergeable: upstream?.mergeable ?? null,
+          snapshotSource: "snapshot",
+          snapshotMatchedAt: snapshotAt.toISOString()
+        } satisfies PositionWithSnapshot;
+      }
+
       // Redemption / merge / off-CLOB closure path.
       if (reShares.gt(0)) {
         redemptionsCredited += 1;
@@ -292,6 +333,54 @@ export function mergeReconstructionWithSnapshot(input: {
       negativeRisk: upstream.negativeRisk,
       redeemable: upstream.redeemable,
       mergeable: upstream.mergeable,
+      snapshotSource: "snapshot",
+      snapshotMatchedAt: snapshotAt.toISOString()
+    });
+  }
+
+  // Remaining closed rows are completed round trips invisible to both the trade
+  // window and the open snapshot (e.g. resolved wins whose buys predate the
+  // /trades cap). Insert them so realized PnL and the closed-positions list are
+  // complete.
+  for (const closed of closedByKey.values()) {
+    if (closed.realizedPnl === null) continue;
+    if (!knownConditionIds.has(closed.conditionId)) {
+      knownConditionIds.add(closed.conditionId);
+      finalMarkets.push({
+        conditionId: closed.conditionId,
+        slug: closed.marketSlug,
+        title: closed.marketTitle,
+        category: null,
+        endDate: null,
+        resolved: false,
+        winningOutcome: null,
+        lastKnownPrice: closed.curPrice,
+        eventId: closed.eventId,
+        eventSlug: closed.eventSlug,
+        rawJson: closed.rawJson,
+        metadata: closed.metadata
+      });
+    }
+    const closedRealized = toDecimal(closed.realizedPnl);
+    finalPositions.push({
+      marketId: closed.conditionId,
+      conditionId: closed.conditionId,
+      outcome: closed.outcome,
+      currentShares: "0",
+      averageEntryPrice: closed.avgPrice ?? "0",
+      averageExitPrice: "0",
+      realizedPnl: closedRealized.toString(),
+      unrealizedPnl: "0",
+      totalPnl: closedRealized.toString(),
+      confidenceScore: 70,
+      curPrice: closed.curPrice,
+      currentValue: "0",
+      cashPnl: closed.realizedPnl,
+      percentPnl: null,
+      eventId: closed.eventId,
+      negativeRisk: closed.negativeRisk,
+      redeemable: closed.redeemable,
+      mergeable: closed.mergeable,
       snapshotSource: "snapshot",
       snapshotMatchedAt: snapshotAt.toISOString()
     });

@@ -79,8 +79,33 @@ describe("PolymarketService.getPriceSnapshots", () => {
       [trade({})]
     );
 
-    expect(getMarketResolution).not.toHaveBeenCalled(); // gamma already resolved — no need to probe CLOB
+    expect(getMarketResolution).not.toHaveBeenCalled(); // gamma resolved AND named the winner — no probe needed
     expect(snapshots[0]).toMatchObject({ resolved: true, winningOutcome: "Yes", markedToMarket: true });
+  });
+
+  // Gamma's /markets exposes `closed` but has no winner field at all, so a resolved
+  // market routinely arrives with winningOutcome=null. Skipping the probe on `resolved`
+  // alone silently strips the winner that redemption settlement depends on.
+  it("still probes CLOB when gamma reports resolved but names no winner", async () => {
+    const getMidpointPrice = vi.fn().mockResolvedValue(null);
+    const getMarketResolution = vi.fn().mockResolvedValue({
+      closed: true,
+      winningOutcome: "No",
+      outcomes: [
+        { outcome: "Yes", price: "0", winner: false },
+        { outcome: "No", price: "1", winner: true }
+      ]
+    });
+    const clob = { getMidpointPrice, getMarketResolution } as unknown as ClobClient;
+    const service = new PolymarketService({} as never, {} as never, clob);
+
+    const snapshots = await service.getPriceSnapshots(
+      [market({ resolved: true, winningOutcome: null })],
+      [trade({ outcome: "Yes" })]
+    );
+
+    expect(getMarketResolution).toHaveBeenCalledWith("0xcond1");
+    expect(snapshots[0]).toMatchObject({ resolved: true, winningOutcome: "No" });
   });
 
   it("falls back to CLOB /markets/<id> when book is empty and gamma hasn't flagged resolution", async () => {
@@ -147,7 +172,20 @@ describe("PolymarketService.resolveProfileIdentifier", () => {
     const result = await service.resolveProfileIdentifier("inaccuratestake");
     expect(result?.address).toBe("0xa000000000000000000000000000000000000001");
     expect(result?.username).toBe("inaccuratestake");
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/profile/inaccuratestake");
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/@inaccuratestake");
+  });
+
+  it("extracts the proxyWallet from a backslash-escaped RSC flight payload", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      // Polymarket SSRs profile data inside a Next.js flight payload with escaped quotes.
+      text: async () => `<html><script>{\\"proxyWallet\\":\\"0xCE5bec63b40392845a9a504915F607c8e03A047a\\"}</script></html>`
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const service = new PolymarketService({} as never, {} as never, {} as never);
+
+    const result = await service.resolveProfileIdentifier("nexuus");
+    expect(result?.address).toBe("0xce5bec63b40392845a9a504915f607c8e03a047a");
   });
 
   it("returns null when upstream HTML lacks a proxyWallet", async () => {

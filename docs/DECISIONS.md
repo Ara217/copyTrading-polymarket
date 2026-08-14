@@ -171,3 +171,21 @@ Replaces the v5.1 scoring that let a deeply unprofitable wallet (real example: �
 - Failure mode: when scraping yields no `proxyWallet`, `WalletsService.resolveWalletIdentifier` throws a `NotFoundException` with code `WALLET_USERNAME_NOT_FOUND`. The resolver MUST NEVER substitute a different wallet — this preserves the existing decision rule that profile resolution never silently changes the wallet under analysis.
 - Cache: resolved usernames are written to Redis at `username:resolve:<lc-username>` with a 24-hour TTL and persisted on `Wallet.username` (already present on the schema). Subsequent lookups bypass both Redis and Polymarket once the wallet row is populated.
 - Identifier pipeline order in the backend: 0x address → profile slug → username. The controller catches resolution errors and only re-wraps non-HTTP errors as `BadRequestException`, so `WALLET_USERNAME_NOT_FOUND` propagates as a 404 untouched.
+
+## Closed Positions Source (data-api /closed-positions)
+
+- Problem: `/trades` deep pagination is capped upstream (offsets past ~1000-4000 return a stub row), so trade replay silently misses resolved round trips for high-volume wallets — e.g. `imjustken`'s two "Won" Aaron Taylor-Johnson positions (+$4,373.01 / +$1,291.93) appeared in Polymarket's UI but in none of `/trades`, `/positions`, `/activity`.
+- Fix: `DataClient.getWalletClosedPositions` pages `GET data-api.polymarket.com/closed-positions?user=...` (limit hard-capped at 50 by the API; offset verified to 10,000+; `POLYMARKET_DATA_MAX_CLOSED_POSITION_PAGES`, default 100). Rows normalize into `NormalizedPosition` with `size: "0"`.
+- Merge precedence (`mergeReconstructionWithSnapshot.closedSnapshot`): a closed row keyed `conditionId:outcome` (1) is dropped if the open snapshot still holds that key with size > 0 (the open row's `realizedPnl` already includes past round trips — avoids double counting); (2) otherwise overrides any replay fragment's realizedPnl (authoritative over both the settlement guess and window-truncated replays); (3) otherwise inserts as a closed position, synthesizing a Market row for FK safety.
+- Like the open snapshot, the closed fetch is advisory: on failure the refresh completes on reconstruction alone.
+- Also: Polymarket relists identical titles under new conditionIds; the positions UI tags colliding titles with a short conditionId suffix.
+- Username resolution note: profile pages moved from `/profile/<username>` (now 404) to `/@<username>`; addresses remain at `/profile/0x...`. The resolver routes accordingly.
+
+## Web UI Split (Routed Pages + Traders Landing)
+
+- `apps/web` moved from a single-view SPA to `react-router-dom` with two routes: `/` (LandingPage) and `/wallets/:address` (WalletPage — the former `App.tsx` analyzer body, moved verbatim).
+- `App.tsx` is now a thin shell: shared header (brand + search-to-navigate + dark-mode toggle) around `<Routes>`. The search box navigates to `/wallets/:address`; WalletPage loads on param change via the existing `walletStore.loadWallet(param)`. URL-sync helpers (`getWalletFromUrl`/`updateWalletUrl`) are gone — router params replace them.
+- Back-compat: old `/?wallet=0x...` deep-links redirect to `/wallets/:address`.
+- LandingPage is backed by the existing V5 `GET /rankings/wallets` (its first frontend consumer; no backend change). Known caveat: it lists only wallets with a computed ranking (analyzed at least once); synced-but-unranked wallets don't appear. Server-side sort/classification filter/paging; DataTable renders one server page at a time (`enableSorting={false}` — sorting is server-driven via the dropdown).
+- New shared column set `rankingColumns` in `@polyand/ui`. Markets/events landing tab is deferred to V5.5 (layout slot left open).
+- Extension UI intentionally unchanged — it keeps its compact single-wallet flow.

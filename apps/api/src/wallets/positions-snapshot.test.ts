@@ -181,4 +181,61 @@ describe("mergeReconstructionWithSnapshot", () => {
     expect(result.markets[0].eventId).toBe("ev-1");
     expect(result.markets[0].eventSlug).toBe("world-cup");
   });
+
+  it("overrides a window-truncated replay fragment with the closed-positions realizedPnl", () => {
+    const result = mergeReconstructionWithSnapshot({
+      walletAddress: "0xwallet",
+      reconstructed: [reconstruction({ currentShares: "0", realizedPnl: "-22.79" })],
+      snapshot: [],
+      closedSnapshot: [snapshotRow({ size: "0", avgPrice: "0.032", realizedPnl: "1291.93", curPrice: "0.0055" })],
+      markets: [market()],
+      priceSnapshots: [],
+      snapshotAt
+    });
+    expect(result.positions).toHaveLength(1);
+    expect(result.positions[0].realizedPnl).toBe("1291.93");
+    expect(result.positions[0].totalPnl).toBe("1291.93");
+    expect(result.positions[0].currentShares).toBe("0");
+    expect(result.positions[0].snapshotSource).toBe("snapshot");
+  });
+
+  it("inserts closed positions invisible to both replay and the open snapshot, synthesizing markets", () => {
+    const result = mergeReconstructionWithSnapshot({
+      walletAddress: "0xwallet",
+      reconstructed: [],
+      snapshot: [],
+      closedSnapshot: [
+        snapshotRow({
+          conditionId: "0xold",
+          size: "0",
+          avgPrice: "0.09",
+          realizedPnl: "4373.01",
+          marketTitle: "Aaron Taylor-Johnson announced as next James Bond?",
+          marketSlug: "aaron-bond"
+        })
+      ],
+      markets: [],
+      priceSnapshots: [],
+      snapshotAt
+    });
+    expect(result.positions).toHaveLength(1);
+    expect(result.positions[0].marketId).toBe("0xold");
+    expect(result.positions[0].realizedPnl).toBe("4373.01");
+    expect(result.positions[0].currentShares).toBe("0");
+    expect(result.markets.some((m) => m.conditionId === "0xold" && m.title?.includes("Aaron"))).toBe(true);
+  });
+
+  it("drops a closed row whose key is still open upstream to avoid double-counting", () => {
+    const result = mergeReconstructionWithSnapshot({
+      walletAddress: "0xwallet",
+      reconstructed: [reconstruction({ currentShares: "10", averageEntryPrice: "0.5" })],
+      snapshot: [snapshotRow({ size: "10", realizedPnl: "5" })],
+      closedSnapshot: [snapshotRow({ size: "0", realizedPnl: "999" })],
+      markets: [market()],
+      priceSnapshots: [],
+      snapshotAt
+    });
+    expect(result.positions).toHaveLength(1);
+    expect(result.positions[0].realizedPnl).not.toBe("999");
+  });
 });

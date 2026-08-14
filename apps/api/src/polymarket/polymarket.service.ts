@@ -19,6 +19,10 @@ export class PolymarketService {
     return this.dataClient.getWalletTrades(walletAddress);
   }
 
+  async getWalletClosedPositions(walletAddress: string): Promise<NormalizedPosition[]> {
+    return this.dataClient.getWalletClosedPositions(walletAddress);
+  }
+
   async getWalletPositions(walletAddress: string): Promise<NormalizedPosition[]> {
     return this.dataClient.getWalletPositions(walletAddress);
   }
@@ -45,14 +49,17 @@ export class PolymarketService {
 
     let target = trimmed;
     let username: string | null = null;
-    if (!/^0x[a-fA-F0-9]{40}(-\d+)?$/.test(trimmed)) {
+    const isAddress = /^0x[a-fA-F0-9]{40}(-\d+)?$/.test(trimmed);
+    if (!isAddress) {
       const parsed = polymarketUsernameSchema.safeParse(trimmed);
       if (!parsed.success) return null;
       target = parsed.data;
       username = parsed.data;
     }
 
-    const response = await fetch(`https://polymarket.com/profile/${encodeURIComponent(target)}`, {
+    // Polymarket serves addresses at /profile/0x..., but usernames live at /@handle.
+    const path = isAddress ? `profile/${encodeURIComponent(target)}` : `@${encodeURIComponent(target)}`;
+    const response = await fetch(`https://polymarket.com/${path}`, {
       headers: {
         accept: "text/html",
         "user-agent": "polyand-analytics/0.1"
@@ -64,7 +71,11 @@ export class PolymarketService {
     }
 
     const html = await response.text();
-    const proxyWalletMatch = html.match(/"proxyWallet":"(0x[a-fA-F0-9]{40})"/);
+    // Polymarket SSRs the profile inside a Next.js RSC flight payload where JSON
+    // quotes are backslash-escaped (`\"proxyWallet\":\"0x...`). Match both the
+    // escaped and plain forms; the 40-hex address bounds the capture so we don't
+    // need to anchor on a (possibly escaped) closing quote.
+    const proxyWalletMatch = html.match(/proxyWallet\\?":\\?"(0x[a-fA-F0-9]{40})/);
     if (!proxyWalletMatch?.[1]) {
       return null;
     }
@@ -107,15 +118,17 @@ export class PolymarketService {
 
     const marketById = new Map(markets.map((market) => [market.conditionId, market]));
 
-    // Fallback: when CLOB book is empty AND gamma hasn't flagged the market resolved,
-    // probe `/markets/<conditionId>` which exposes authoritative resolution state
-    // (often hours before gamma catches up).
+    // Fallback: when the CLOB book is empty, probe `/markets/<conditionId>` for the
+    // authoritative resolution state (often hours before gamma catches up).
+    // Gamma flags `resolved` but never names the winner, so skip the probe only once we
+    // already have both — skipping on `resolved` alone loses winningOutcome entirely.
     const resolutionLookups = await Promise.all(
       latest.map((trade, index) => {
         if (clobPrices[index]) {
           return Promise.resolve(null);
         }
-        if (marketById.get(trade.conditionId)?.resolved) {
+        const known = marketById.get(trade.conditionId);
+        if (known?.resolved && known.winningOutcome) {
           return Promise.resolve(null);
         }
         return this.clobClient.getMarketResolution(trade.conditionId);

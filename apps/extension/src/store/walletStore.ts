@@ -11,7 +11,7 @@ import type {
   WalletPerformance,
   WinLossChartPoint
 } from "@polyand/types";
-import { extractWalletIdentifierFromText, parseWalletIdentifier } from "@polyand/shared";
+import { extractWalletIdentifierFromText, looksLikePolymarketUsername } from "@polyand/shared";
 import { api } from "../api/client";
 
 interface WalletState {
@@ -110,5 +110,11 @@ export const useWalletStore = create<WalletState>((set, get) => ({
 
 function normalizeIdentifier(input: string): string {
   const extracted = extractWalletIdentifierFromText(input);
-  return extracted ?? parseWalletIdentifier(input);
+  if (extracted) return extracted;
+  // A bare nickname has no 0x to extract; pass it through for the backend to resolve.
+  const trimmed = input.trim();
+  if (looksLikePolymarketUsername(trimmed)) return trimmed.toLowerCase();
+  // Unrecognized input: hand it to the backend, which validates and returns a
+  // readable error instead of throwing an uncaught ZodError in the client.
+  return trimmed;
 }

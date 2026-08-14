@@ -48,7 +48,7 @@ import {
 } from "@polyand/types";
 import { CacheService } from "../cache/cache.service";
 import { PolymarketService } from "../polymarket/polymarket.service";
-import { NormalizedMarket, NormalizedTrade } from "../polymarket/types";
+import { MarketPriceSnapshot, NormalizedMarket, NormalizedTrade } from "../polymarket/types";
 import { PrismaService } from "../prisma/prisma.service";
 import { WALLET_SYNC_QUEUE } from "./wallets.constants";
 import {
@@ -61,6 +61,37 @@ import {
 } from "@polyand/shared";
 import { inferMarketCategory } from "./market-category";
 import { mergeReconstructionWithSnapshot } from "./positions-snapshot";
+
+/**
+ * Back-merge CLOB-confirmed resolution into the markets we persist.
+ *
+ * Gamma exposes `closed` but never the winning outcome, and it can lag hours behind
+ * settlement. getPriceSnapshots probes CLOB /markets/<id> for authoritative state, so
+ * CLOB is the only source of `winningOutcome` — it must be applied even when gamma has
+ * already reported the market resolved, or settlement math loses the winner entirely.
+ */
+export function applyClobResolution(
+  markets: NormalizedMarket[],
+  priceSnapshots: MarketPriceSnapshot[]
+): void {
+  const resolutionByConditionId = new Map<string, string | null>();
+  for (const snapshot of priceSnapshots) {
+    if (!snapshot.resolved) {
+      continue;
+    }
+    const existing = resolutionByConditionId.get(snapshot.marketId);
+    // Only one outcome per condition carries the winner; keep the first non-null.
+    resolutionByConditionId.set(snapshot.marketId, existing ?? snapshot.winningOutcome ?? null);
+  }
+
+  for (const market of markets) {
+    if (!resolutionByConditionId.has(market.conditionId)) {
+      continue;
+    }
+    market.resolved = true;
+    market.winningOutcome = market.winningOutcome ?? resolutionByConditionId.get(market.conditionId) ?? null;
+  }
+}
 
 @Injectable()
 export class WalletsService {
@@ -148,25 +179,7 @@ export class WalletsService {
       trades
     );
     const priceSnapshots = await this.polymarket.getPriceSnapshots(markets, trades);
-    // Back-merge CLOB-confirmed resolution into the markets we persist. gamma sometimes
-    // lags hours behind settlement; getPriceSnapshots probes CLOB /markets/<id> for the
-    // authoritative state and we propagate it so Position.market.resolved reflects truth.
-    const resolutionByConditionId = new Map<string, { resolved: boolean; winningOutcome: string | null }>();
-    for (const snapshot of priceSnapshots) {
-      if (snapshot.resolved) {
-        resolutionByConditionId.set(snapshot.marketId, {
-          resolved: true,
-          winningOutcome: snapshot.winningOutcome ?? null
-        });
-      }
-    }
-    for (const market of markets) {
-      const resolution = resolutionByConditionId.get(market.conditionId);
-      if (resolution && !market.resolved) {
-        market.resolved = true;
-        market.winningOutcome = market.winningOutcome ?? resolution.winningOutcome;
-      }
-    }
+    applyClobResolution(markets, priceSnapshots);
     const analyticsTrades = this.toAnalyticsTrades(trades);
     const reconstructed = reconstructPositions(analyticsTrades, priceSnapshots);
 
@@ -179,10 +192,17 @@ export class WalletsService {
       console.warn(`positions.snapshot.failed walletAddress=${walletAddress} error=${(error as Error).message}`);
       return [];
     });
+    const closedSnapshot = await this.polymarket.getWalletClosedPositions(walletAddress).catch((error) => {
+      // Advisory, like the open snapshot — refresh completes without it.
+      // eslint-disable-next-line no-console
+      console.warn(`positions.closed.failed walletAddress=${walletAddress} error=${(error as Error).message}`);
+      return [];
+    });
     const merged = mergeReconstructionWithSnapshot({
       walletAddress,
       reconstructed,
       snapshot: upstreamSnapshot,
+      closedSnapshot,
       markets,
       priceSnapshots,
       snapshotAt
@@ -207,6 +227,14 @@ export class WalletsService {
       }))
     });
 
+    // ponytail: markets are shared, idempotent reference data — upsert them OUTSIDE the
+    // transaction. Keeping this N-row loop inside blew past the 30s tx timeout and held a
+    // pooled connection the whole time, starving recordSyncJob (pool-timeout error). FK on
+    // Trade/Position.conditionId only requires the rows exist before the createMany below.
+    for (const market of markets) {
+      await this.upsertMarket(this.prisma, market);
+    }
+
     await this.prisma.$transaction(async (tx) => {
       await tx.wallet.upsert({
         where: { address: walletAddress },
@@ -226,10 +254,6 @@ export class WalletsService {
           adapterVersion: "polymarket-v1"
         }
       });
-
-      for (const market of markets) {
-        await this.upsertMarket(tx, market);
-      }
 
       await tx.trade.deleteMany({ where: { walletAddress } });
       await tx.position.deleteMany({ where: { walletAddress } });
@@ -992,6 +1016,7 @@ export class WalletsService {
 
     const serialized = rows.map((row) => ({
       ...this.serializeRanking(row),
+      username: row.wallet.username ?? null,
       totalPnl: row.wallet.metrics?.totalPnl.toString() ?? "0",
       roi: row.wallet.metrics?.roi.toString() ?? "0",
       tradeCount: row.wallet.metrics?.tradeCount ?? 0,
@@ -1178,7 +1203,10 @@ export class WalletsService {
     };
   }
 
-  private async upsertMarket(tx: Prisma.TransactionClient, market: NormalizedMarket): Promise<void> {
+  private async upsertMarket(
+    tx: Prisma.TransactionClient | PrismaService,
+    market: NormalizedMarket
+  ): Promise<void> {
     await tx.market.upsert({
       where: { conditionId: market.conditionId },
       create: {

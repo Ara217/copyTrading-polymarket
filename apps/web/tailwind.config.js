@@ -1,6 +1,6 @@
 export default {
   darkMode: "class",
-  content: ["./index.html", "./src/**/*.{ts,tsx}"],
+  content: ["./index.html", "./src/**/*.{ts,tsx}", "../../packages/ui/src/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {

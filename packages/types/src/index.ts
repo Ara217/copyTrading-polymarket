@@ -416,6 +416,7 @@ export interface WalletRankingDto {
 }
 
 export interface WalletRankingLeaderboardRow extends WalletRankingDto {
+  username: string | null;
   totalPnl: string;
   roi: string;
   tradeCount: number;

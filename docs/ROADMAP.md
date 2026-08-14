@@ -56,6 +56,14 @@ V5 also integrates Polymarket's `/positions` endpoint as the authoritative snaps
 
 CLOB usage: `/book` depth and `/spread` can turn the V3 placeholder liquidity score into a real liquidity-compatibility input; `/prices-history` can sharpen drawdown/volatility from real prices rather than reconstructed values. See `docs/ARCHITECTURE.md` ("CLOB API Usage And Roadmap").
 
+## Version 5.5: New Market Screener
+
+Status: Planned (next)
+
+Detailed spec: `docs/versions/V5_5_NEW_MARKET_SCREENER.md`
+
+V5.5 is a standalone market-discovery module (no wallet analytics involved): it polls Gamma for newly created events, tracks each market's earliest lifecycle (`BOOK_EMPTY → DISCOVERY → PRICED`), permanently records opening price and first-liquidity time, and surfaces a "New Markets" feed in web and extension so the user can manually evaluate early entries during the thin-liquidity window. No trading, no alerts (V7 may later reuse the poller as an alert source).
+
 ## Version 6: Copy Candidate Screener
 
 Status: Next target

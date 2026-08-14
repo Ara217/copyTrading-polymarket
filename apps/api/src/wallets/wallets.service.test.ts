@@ -1,8 +1,77 @@
 import { NotFoundException } from "@nestjs/common";
 import { copySimulationSettingsSchema } from "@polyand/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { WalletsService } from "./wallets.service";
+import { applyClobResolution, WalletsService } from "./wallets.service";
 import type { NormalizedMarket, NormalizedTrade } from "../polymarket/types";
+
+describe("applyClobResolution", () => {
+  const market = (overrides: Partial<NormalizedMarket>): NormalizedMarket =>
+    ({
+      conditionId: "cond-1",
+      slug: null,
+      title: null,
+      category: null,
+      endDate: null,
+      resolved: false,
+      winningOutcome: null,
+      lastKnownPrice: null,
+      eventId: null,
+      eventSlug: null,
+      rawJson: null,
+      metadata: null,
+      ...overrides
+    }) as NormalizedMarket;
+
+  // Gamma reports `closed` but never a winner. Once the gamma adapter started returning
+  // closed markets, a `!market.resolved` guard here silently dropped every winningOutcome,
+  // which feeds redemption settlement math.
+  it("applies the CLOB winner even when the market already reports resolved", () => {
+    const markets = [market({ resolved: true, winningOutcome: null })];
+
+    applyClobResolution(markets, [
+      { marketId: "cond-1", outcome: "Yes", price: "0", resolved: true, winningOutcome: "No" }
+    ]);
+
+    expect(markets[0].resolved).toBe(true);
+    expect(markets[0].winningOutcome).toBe("No");
+  });
+
+  it("marks unresolved markets resolved from the CLOB probe", () => {
+    const markets = [market({ resolved: false })];
+
+    applyClobResolution(markets, [
+      { marketId: "cond-1", outcome: "Yes", price: "1", resolved: true, winningOutcome: "Yes" }
+    ]);
+
+    expect(markets[0]).toMatchObject({ resolved: true, winningOutcome: "Yes" });
+  });
+
+  it("keeps an existing winner and ignores unresolved snapshots", () => {
+    const markets = [
+      market({ conditionId: "cond-1", resolved: true, winningOutcome: "Yes" }),
+      market({ conditionId: "cond-2" })
+    ];
+
+    applyClobResolution(markets, [
+      { marketId: "cond-1", outcome: "Yes", price: "1", resolved: true, winningOutcome: "No" },
+      { marketId: "cond-2", outcome: "Yes", price: "0.4", resolved: false }
+    ]);
+
+    expect(markets[0].winningOutcome).toBe("Yes");
+    expect(markets[1]).toMatchObject({ resolved: false, winningOutcome: null });
+  });
+
+  it("takes the winner from whichever outcome row carries it", () => {
+    const markets = [market({})];
+
+    applyClobResolution(markets, [
+      { marketId: "cond-1", outcome: "Yes", price: "0", resolved: true, winningOutcome: null },
+      { marketId: "cond-1", outcome: "No", price: "1", resolved: true, winningOutcome: "No" }
+    ]);
+
+    expect(markets[0].winningOutcome).toBe("No");
+  });
+});
 
 describe("WalletsService", () => {
   const walletAddress = "0x1111111111111111111111111111111111111111";
@@ -42,11 +111,14 @@ describe("WalletsService", () => {
     const trade = normalizedTrade("trade-1");
     const prisma = {
       syncJob: { upsert: vi.fn().mockResolvedValue(undefined) },
+      // markets are now upserted on the top-level client, outside $transaction
+      market: { upsert: vi.fn().mockResolvedValue(undefined) },
       $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx))
     };
     const polymarket = {
       getWalletTrades: vi.fn().mockResolvedValue([trade, { ...trade, id: "trade-duplicate" }]),
       getWalletPositions: vi.fn().mockResolvedValue([]),
+      getWalletClosedPositions: vi.fn().mockResolvedValue([]),
       getMarkets: vi.fn().mockResolvedValue([normalizedMarket()]),
       getPriceSnapshots: vi.fn().mockResolvedValue([])
     };

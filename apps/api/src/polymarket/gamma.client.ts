@@ -21,13 +21,26 @@ export class GammaClient {
     }
 
     const fetchedAt = new Date().toISOString();
-    const markets = (
+    // Gamma filters on `closed` and defaults to open-only, so resolved markets are
+    // invisible unless asked for explicitly. It honours a single value per request
+    // (`closed=true&closed=false` is last-wins), so each batch needs both passes.
+    const batched = (
       await Promise.all(
-        this.chunkConditionIds(uniqueIds).map((conditionIdBatch) =>
-          this.fetchMarketsBatch(conditionIdBatch, fetchedAt)
-        )
+        this.chunkConditionIds(uniqueIds).flatMap((conditionIdBatch) => [
+          this.fetchMarketsBatch(conditionIdBatch, fetchedAt, false),
+          this.fetchMarketsBatch(conditionIdBatch, fetchedAt, true)
+        ])
       )
     ).flat();
+
+    // Two passes per batch, so collapse any condition returned by both.
+    const byConditionId = new Map<string, NormalizedMarket>();
+    for (const market of batched) {
+      if (!byConditionId.has(market.conditionId)) {
+        byConditionId.set(market.conditionId, market);
+      }
+    }
+    const markets = [...byConditionId.values()];
 
     const found = new Set(markets.map((market) => market.conditionId));
     const fallbackMarkets = uniqueIds
@@ -57,9 +70,17 @@ export class GammaClient {
     return [...markets, ...fallbackMarkets];
   }
 
-  private async fetchMarketsBatch(conditionIds: string[], fetchedAt: string): Promise<NormalizedMarket[]> {
+  private async fetchMarketsBatch(
+    conditionIds: string[],
+    fetchedAt: string,
+    closed: boolean
+  ): Promise<NormalizedMarket[]> {
     const url = new URL("/markets", this.baseUrl);
-    url.searchParams.set("condition_ids", conditionIds.join(","));
+    // Gamma expects `condition_ids` repeated once per ID; a comma-joined value matches nothing.
+    for (const conditionId of conditionIds) {
+      url.searchParams.append("condition_ids", conditionId);
+    }
+    url.searchParams.set("closed", String(closed));
     url.searchParams.set("limit", String(Math.min(conditionIds.length, 500)));
 
     const raw = await fetchJson<unknown>(url.toString());

@@ -1,7 +1,12 @@
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import Decimal from "decimal.js";
-import { adapterVersion, polymarketPositionSchema, polymarketTradeSchema } from "@polyand/shared";
+import {
+  adapterVersion,
+  polymarketClosedPositionSchema,
+  polymarketPositionSchema,
+  polymarketTradeSchema
+} from "@polyand/shared";
 import { asArray, fetchJson } from "./http";
 import { NormalizedPosition, NormalizedTrade } from "./types";
 
@@ -13,6 +18,7 @@ export class DataClient {
   private readonly maxTradeOffset: number;
   private readonly positionPageSize: number;
   private readonly maxPositionPages: number;
+  private readonly maxClosedPositionPages: number;
 
   constructor(config: ConfigService) {
     this.baseUrl = config.get<string>("POLYMARKET_DATA_BASE_URL") ?? "https://data-api.polymarket.com";
@@ -21,6 +27,11 @@ export class DataClient {
     this.maxTradeOffset = this.readPositiveInteger(config, "POLYMARKET_DATA_MAX_TRADE_OFFSET", 3000);
     this.positionPageSize = this.readPositiveInteger(config, "POLYMARKET_DATA_POSITION_PAGE_SIZE", 500);
     this.maxPositionPages = this.readPositiveInteger(config, "POLYMARKET_DATA_MAX_POSITION_PAGES", 20);
+    // API clamps /closed-positions pages to 50 rows regardless of limit; whales run
+    // 15k+ closed rows, so the ceiling must be high. Loop exits on first short page,
+    // so small wallets still pay a single request. ponytail: sequential fetch —
+    // ~400 requests/whale refresh; batch-parallelize if refresh latency matters.
+    this.maxClosedPositionPages = this.readPositiveInteger(config, "POLYMARKET_DATA_MAX_CLOSED_POSITION_PAGES", 400);
   }
 
   async getWalletTrades(walletAddress: string): Promise<NormalizedTrade[]> {
@@ -61,6 +72,75 @@ export class DataClient {
     }
 
     return pages.flatMap((item) => this.normalizePosition(item, walletAddress, fetchedAt));
+  }
+
+  /**
+   * data-api /closed-positions: resolved/redeemed round trips with authoritative
+   * realizedPnl — history the /trades window cannot reach. API caps limit at 50.
+   */
+  async getWalletClosedPositions(walletAddress: string): Promise<NormalizedPosition[]> {
+    const fetchedAt = new Date().toISOString();
+    const pageSize = 50;
+    const pages: unknown[] = [];
+
+    for (let page = 0; page < this.maxClosedPositionPages; page += 1) {
+      const url = new URL("/closed-positions", this.baseUrl);
+      url.searchParams.set("user", walletAddress);
+      url.searchParams.set("limit", String(pageSize));
+      url.searchParams.set("offset", String(page * pageSize));
+      url.searchParams.set("sortBy", "TIMESTAMP");
+      const items = asArray(await fetchJson<unknown>(url.toString()));
+      pages.push(...items);
+      if (items.length < pageSize) {
+        break;
+      }
+    }
+
+    return pages.flatMap((item) => this.normalizeClosedPosition(item, walletAddress, fetchedAt));
+  }
+
+  private normalizeClosedPosition(item: unknown, walletAddress: string, fetchedAt: string): NormalizedPosition[] {
+    const parsed = polymarketClosedPositionSchema.safeParse(item);
+    if (!parsed.success) {
+      return [];
+    }
+    const row = parsed.data;
+    const conditionId = row.conditionId ?? row.condition_id ?? "";
+    if (!conditionId) {
+      return [];
+    }
+    const toStr = (value: unknown): string | null =>
+      value === null || value === undefined ? null : new Decimal(value.toString()).toString();
+
+    return [
+      {
+        walletAddress,
+        conditionId,
+        tokenId: row.asset === null || row.asset === undefined ? null : String(row.asset),
+        outcome: row.outcome,
+        size: "0", // closed: no open shares by definition
+        avgPrice: toStr(row.avgPrice),
+        curPrice: toStr(row.curPrice),
+        initialValue: toStr(row.totalBought),
+        currentValue: "0",
+        cashPnl: toStr(row.realizedPnl),
+        percentPnl: null,
+        realizedPnl: toStr(row.realizedPnl),
+        redeemable: null,
+        mergeable: null,
+        negativeRisk: null,
+        marketTitle: row.title ?? null,
+        marketSlug: row.slug ?? null,
+        eventId: null,
+        eventSlug: row.eventSlug ?? null,
+        rawJson: item,
+        metadata: {
+          source: "data",
+          fetchedAt,
+          adapterVersion
+        }
+      } satisfies NormalizedPosition
+    ];
   }
 
   private async getWalletPositionPage(walletAddress: string, offset: number): Promise<unknown> {
